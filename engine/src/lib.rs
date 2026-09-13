@@ -18,6 +18,7 @@
 pub mod json;
 pub mod numbers;
 pub mod rules;
+pub mod structure;
 pub mod text;
 
 use rules::Issue;
@@ -30,6 +31,7 @@ pub struct Stats {
     pub sentences: usize,
     pub words: usize,
     pub numbers: usize,
+    pub headings: usize,
     pub checks: usize,
 }
 
@@ -41,27 +43,37 @@ pub struct Report {
 }
 
 /// Reads a document and reports what is wrong with it.
-pub fn analyze(document: &str) -> Report {
+///
+/// * `outline` — the document's headings, one per line:
+///   `level<TAB>start<TAB>end<TAB>title`. Empty when the document has none.
+/// * `kind` — the document's type ("Thesis", "Report"…), used to know which
+///   sections this kind of document usually has.
+pub fn analyze(document: &str, outline: &str, kind: &str) -> Report {
     let sentences = text::split_sentences(document);
     let numbers = sentences
         .iter()
         .map(|sentence| numbers::numbers_in(sentence).len())
         .sum();
-    let issues = rules::run(&sentences);
+    let headings = structure::parse_outline(outline);
+
+    let mut issues = rules::run(&sentences);
+    issues.extend(structure::run(document, &headings, kind));
+
     Report {
         stats: Stats {
             sentences: sentences.len(),
             words: text::words(document).len(),
             numbers,
-            checks: 3,
+            headings: headings.len(),
+            checks: 7,
         },
         issues,
     }
 }
 
 /// The same as [`analyze`], as the JSON the browser reads.
-pub fn analyze_to_json(document: &str) -> String {
-    report_to_json(&analyze(document))
+pub fn analyze_to_json(document: &str, outline: &str, kind: &str) -> String {
+    report_to_json(&analyze(document, outline, kind))
 }
 
 fn report_to_json(report: &Report) -> String {
@@ -75,6 +87,7 @@ fn report_to_json(report: &Report) -> String {
                 ("sentences", json::number(report.stats.sentences as f64)),
                 ("words", json::number(report.stats.words as f64)),
                 ("numbers", json::number(report.stats.numbers as f64)),
+                ("headings", json::number(report.stats.headings as f64)),
                 ("checks", json::number(report.stats.checks as f64)),
             ]),
         ),
@@ -104,6 +117,13 @@ fn issue_to_json(issue: &Issue) -> String {
             ])
         })
         .collect();
+    let suggestion = match &issue.suggestion {
+        Some(hint) => json::object(&[
+            ("title", json::quote(&hint.title)),
+            ("level", json::number(hint.level as f64)),
+        ]),
+        None => "null".to_string(),
+    };
     json::object(&[
         ("id", json::quote(&issue.id)),
         ("kind", json::quote(&issue.kind)),
@@ -115,6 +135,7 @@ fn issue_to_json(issue: &Issue) -> String {
         ("end", json::number(issue.end as f64)),
         ("related", json::array(&related)),
         ("repairs", json::array(&repairs)),
+        ("suggestion", suggestion),
     ])
 }
 
@@ -127,9 +148,12 @@ mod browser {
     use wasm_bindgen::prelude::*;
 
     /// Analyses a document and returns the report as a JSON string.
+    ///
+    /// `outline` carries the document's headings (one per line:
+    /// `level<TAB>start<TAB>end<TAB>title`) and `kind` its type ("Thesis"…).
     #[wasm_bindgen]
-    pub fn analyze_json(document: &str) -> String {
-        super::analyze_to_json(document)
+    pub fn analyze_json(document: &str, outline: &str, kind: &str) -> String {
+        super::analyze_to_json(document, outline, kind)
     }
 
     /// The engine's version, shown in the editor's status bar.
@@ -143,19 +167,25 @@ mod browser {
 mod tests {
     use super::*;
 
+    /// Most tests have no headings and no document type.
+    fn plain(document: &str) -> Report {
+        analyze(document, "", "Other")
+    }
+
     #[test]
     fn empty_document_is_clean() {
-        let report = analyze("");
+        let report = plain("");
         assert_eq!(report.stats.sentences, 0);
         assert!(report.issues.is_empty());
     }
 
     #[test]
     fn counts_what_it_read() {
-        let report = analyze("The lab budget is PKR 45,000. The team has 8 members.");
+        let report = plain("The lab budget is PKR 45,000. The team has 8 members.");
         assert_eq!(report.stats.sentences, 2);
         assert_eq!(report.stats.numbers, 2);
-        assert_eq!(report.stats.checks, 3);
+        assert_eq!(report.stats.headings, 0);
+        assert_eq!(report.stats.checks, 7);
     }
 
     #[test]
@@ -163,10 +193,13 @@ mod tests {
         let out = analyze_to_json(
             "The project budget is PKR 45,000 for lab equipment. \
              The lab equipment budget is PKR 32,000.",
+            "",
+            "Other",
         );
         assert!(out.starts_with("{\"version\":"));
         assert!(out.contains("\"kind\":\"contradiction\""));
         assert!(out.contains("\"repairs\":[{\"label\":"));
+        assert!(out.contains("\"suggestion\":null"));
         assert!(out.contains("\"stats\":{\"sentences\":2"));
     }
 
@@ -175,10 +208,37 @@ mod tests {
         let out = analyze_to_json(
             "He said \"the budget is PKR 45,000\" for lab equipment. \
              The lab equipment budget is PKR 32,000.",
+            "",
+            "Other",
         );
         // The conflict is still found, and every quote in the output is a JSON
         // quote — an unescaped one from the document would make the count odd.
         assert!(out.contains("\"kind\":\"contradiction\""));
         assert_eq!(out.matches('"').count() % 2, 0);
+    }
+
+    #[test]
+    fn structure_and_sentence_checks_run_together() {
+        let document = "Introduction\nThe study covered 45 students on campus.\n\
+                        Results\nThe campus study covered 32 students.";
+        let outline = "1\t0\t12\tIntroduction\n1\t53\t60\tResults";
+        let report = analyze(document, outline, "Thesis");
+        assert_eq!(report.stats.headings, 2);
+        assert!(report.issues.iter().any(|i| i.kind == "contradiction"));
+        assert!(report.issues.iter().any(|i| i.kind == "structure"));
+    }
+
+    #[test]
+    fn a_missing_section_suggests_the_heading() {
+        let document = "Introduction\nSome writing.\nResults\nMore writing.";
+        let outline = "1\t0\t12\tIntroduction\n1\t28\t35\tResults";
+        let report = analyze(document, outline, "Thesis");
+        let hint = report
+            .issues
+            .iter()
+            .find(|i| i.title.contains("Methodology"))
+            .and_then(|i| i.suggestion.clone())
+            .expect("a missing Methodology section should suggest a heading");
+        assert_eq!(hint.title, "Methodology");
     }
 }

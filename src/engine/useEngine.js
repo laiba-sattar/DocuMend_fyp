@@ -5,7 +5,7 @@
  * after typing stops, paints the highlights on the page and hands the page a
  * plain list of issues to show in the review panel.
  *
- *   const engine = useEngine(editor, { enabled: heatmapOn, docId: selectedId });
+ *   const engine = useEngine(editor, { enabled: heatmapOn, docId: selectedId, kind: 'Thesis' });
  *   engine.status     // 'starting' | 'ready' | 'off'
  *   engine.issues     // [{ id, kind, title, message, severity, location, repairs… }]
  *   engine.applyRepair(issue, repair)
@@ -13,12 +13,12 @@
  *   engine.ignoreIssue(issue)
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { buildTextMap, highlightClass, toRange } from './textmap';
+import { buildTextMap, highlightClass, serializeOutline, toRange } from './textmap';
 
 /** How long to wait after the last keystroke before analysing again. */
 const IDLE_MS = 1200;
 
-export function useEngine(editor, { enabled = true, docId = null } = {}) {
+export function useEngine(editor, { enabled = true, docId = null, kind = 'Other' } = {}) {
   const [status, setStatus] = useState('starting');
   const [engineName, setEngineName] = useState(null);
   const [issues, setIssues] = useState([]);
@@ -26,6 +26,7 @@ export function useEngine(editor, { enabled = true, docId = null } = {}) {
   const [lastRunMs, setLastRunMs] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [dismissed, setDismissed] = useState({});
+  const [outline, setOutline] = useState([]); // the document's headings
 
   const workerRef = useRef(null);
   const timerRef = useRef(0);
@@ -80,10 +81,17 @@ export function useEngine(editor, { enabled = true, docId = null } = {}) {
     if (!worker || !editor || editor.isDestroyed) return;
     const map = buildTextMap(editor.state.doc);
     analysisRef.current = { doc: editor.state.doc, map };
+    setOutline(map.outline);
     requestRef.current += 1;
     setAnalyzing(true);
-    worker.postMessage({ type: 'analyze', id: requestRef.current, text: map.text });
-  }, [editor]);
+    worker.postMessage({
+      type: 'analyze',
+      id: requestRef.current,
+      text: map.text,
+      outline: serializeOutline(map.outline),
+      kind,
+    });
+  }, [editor, kind]);
 
   const schedule = useCallback(() => {
     window.clearTimeout(timerRef.current);
@@ -116,6 +124,7 @@ export function useEngine(editor, { enabled = true, docId = null } = {}) {
     total: openIssues.length,
     contradiction: openIssues.filter((issue) => issue.kind === 'contradiction').length,
     redundancy: openIssues.filter((issue) => issue.kind === 'redundancy').length,
+    structure: openIssues.filter((issue) => issue.kind === 'structure').length,
   }), [openIssues]);
 
   /** Turns an engine range into an editor range, using the analysed document. */
@@ -172,6 +181,32 @@ export function useEngine(editor, { enabled = true, docId = null } = {}) {
     return true;
   }, [editor, rangeOf, runNow]);
 
+  /** Scrolls to a heading (or any engine range). */
+  const goToOffset = useCallback((start, end) => {
+    const range = rangeOf(start, end);
+    if (!range || !editor) return false;
+    editor.chain().focus().setTextSelection(range).scrollIntoView().run();
+    return true;
+  }, [editor, rangeOf]);
+
+  /** Adds a missing section's heading at the end of the document. */
+  const addHeading = useCallback((issue) => {
+    if (!issue.suggestion || !editor || editor.isDestroyed) return false;
+    const { title, level } = issue.suggestion;
+    editor
+      .chain()
+      .focus('end')
+      .insertContentAt(editor.state.doc.content.size, [
+        { type: 'heading', attrs: { level: Math.min(3, Math.max(1, level)) }, content: [{ type: 'text', text: title }] },
+        { type: 'paragraph' },
+      ])
+      .scrollIntoView()
+      .run();
+    setDismissed((current) => ({ ...current, [issue.id]: 'fixed' }));
+    runNow();
+    return true;
+  }, [editor, runNow]);
+
   const ignoreIssue = useCallback((issue) => {
     setDismissed((current) => ({ ...current, [issue.id]: 'ignored' }));
   }, []);
@@ -182,11 +217,14 @@ export function useEngine(editor, { enabled = true, docId = null } = {}) {
     analyzing,
     issues: openIssues,
     counts,
+    outline,
     stats,
     lastRunMs,
     dismissedCount: Object.keys(dismissed).length,
     reanalyze: runNow,
     goToIssue,
+    goToOffset,
+    addHeading,
     applyRepair,
     ignoreIssue,
   };

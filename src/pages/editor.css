@@ -2197,3 +2197,31 @@ button.editor-issue-location:hover { color: #a06d31; }
   .editor-engine-pill.is-busy .editor-engine-dot,
   .editor-scan-progress.is-busy span { animation: none; }
 }
+
+/* ==========================================================================
+   S6 part 2 — the document outline in the Structure tab
+   Each heading is a button that jumps to it; deeper levels are indented.
+   ========================================================================== */
+
+button.editor-outline-item {
+  width: 100%;
+  border: 1px solid transparent;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+button.editor-outline-item:hover { border-color: #ddd5c6; background: #fffaf1; }
+button.editor-outline-item.level-2 { padding-left: 20px; }
+button.editor-outline-item.level-3 { padding-left: 32px; }
+button.editor-outline-item.level-2 span,
+button.editor-outline-item.level-3 span { opacity: .65; }
+
+.editor-outline-empty {
+  margin: 12px 0 0;
+  color: #7d8c84;
+  font-size: 9.5px;
+  line-height: 1.5;
+}
+
+.dash-dark button.editor-outline-item:hover { border-color: #2c4034; background: #16241d; }
+.dash-dark .editor-outline-empty { color: #9fb3a6; }

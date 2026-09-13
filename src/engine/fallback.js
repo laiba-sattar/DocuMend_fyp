@@ -153,11 +153,200 @@ export function numbersIn(sentence) {
 
 const isUnitWord = (word) => word.length >= 2 && /^[\p{L}]+$/u.test(word) && !NOT_UNITS.has(word);
 
+
+/* ---------------------------------------------------------------------------
+   Structure checks — the same rules as engine/src/structure.rs
+   ------------------------------------------------------------------------- */
+
+const TEMPLATES = {
+  thesis: [
+    ['Abstract', ['abstract', 'summary']],
+    ['Introduction', ['introduction', 'overview']],
+    ['Literature Review', ['literature', 'related work', 'background']],
+    ['Methodology', ['methodology', 'method', 'methods', 'approach']],
+    ['Results', ['result', 'results', 'findings', 'evaluation']],
+    ['Discussion', ['discussion', 'analysis']],
+    ['Conclusion', ['conclusion', 'conclusions']],
+    ['References', ['reference', 'references', 'bibliography']],
+  ],
+  'research paper': [
+    ['Abstract', ['abstract', 'summary']],
+    ['Introduction', ['introduction']],
+    ['Related Work', ['related work', 'literature', 'background']],
+    ['Method', ['method', 'methods', 'methodology', 'approach']],
+    ['Results', ['result', 'results', 'experiment', 'evaluation']],
+    ['Discussion', ['discussion', 'analysis']],
+    ['Conclusion', ['conclusion', 'conclusions']],
+    ['References', ['reference', 'references', 'bibliography']],
+  ],
+  report: [
+    ['Introduction', ['introduction', 'overview', 'purpose']],
+    ['Background', ['background', 'context']],
+    ['Findings', ['finding', 'findings', 'result', 'results', 'analysis']],
+    ['Recommendations', ['recommendation', 'recommendations', 'next steps']],
+    ['Conclusion', ['conclusion', 'conclusions', 'summary']],
+  ],
+  legal: [
+    ['Parties', ['parties', 'party', 'between']],
+    ['Definitions', ['definition', 'definitions', 'interpretation']],
+    ['Scope', ['scope', 'services', 'purpose']],
+    ['Obligations', ['obligation', 'obligations', 'responsibilities', 'duties']],
+    ['Termination', ['termination', 'term']],
+    ['Governing Law', ['governing law', 'jurisdiction', 'dispute']],
+  ],
+};
+
+/** Reads the outline the editor sends: `level<TAB>start<TAB>end<TAB>title` per line. */
+export function parseOutline(raw) {
+  return (raw || '')
+    .split('\n')
+    .map((line) => {
+      const [level, start, end, ...rest] = line.split('\t');
+      const heading = {
+        level: Math.min(6, Math.max(1, Number(level) || 1)),
+        start: Number(start),
+        end: Number(end),
+        title: (rest.join('\t') || '').trim(),
+      };
+      return Number.isFinite(heading.start) && heading.end > heading.start ? heading : null;
+    })
+    .filter(Boolean);
+}
+
+const mentions = (title, keywords) => keywords.some((word) => title.toLowerCase().includes(word));
+
+/** The "3." or "4.1 " a heading starts with, so renaming keeps the numbering. */
+function numberingPrefix(title) {
+  const prefix = (title.match(/^[\d.\s)]+/) || [''])[0];
+  return /\d/.test(prefix) ? `${prefix.trimEnd()} ` : '';
+}
+
+function structureIssues(text, headings, kind) {
+  const issues = [];
+  if (!headings.length) return issues;
+
+  const last = headings[headings.length - 1];
+  const bodyLevel = Math.min(3, Math.max(...headings.map((h) => h.level)));
+  const template = TEMPLATES[(kind || '').trim().toLowerCase()] ?? [];
+
+  // 1. Sections this kind of document usually has.
+  if (headings.length >= 2) {
+    template.forEach(([name, keywords]) => {
+      // A heading may use a different word for the same section
+      // (“Findings” for Results, “Summary” for Abstract).
+      const found = headings.find((heading) => mentions(heading.title, keywords));
+      if (found) {
+        if (!found.title.toLowerCase().includes(name.toLowerCase())) {
+          issues.push({
+            id: `rename-${found.start}`,
+            kind: 'structure',
+            title: 'A more standard name',
+            message: `\u201c${found.title}\u201d is where a ${(kind || 'document').toLowerCase()} usually puts \u201c${name}\u201d. Renaming it keeps the outline standard.`,
+            severity: 'low',
+            location: `Heading \u201c${found.title}\u201d`,
+            start: found.start,
+            end: found.end,
+            related: [],
+            repairs: [{
+              label: `Rename to \u201c${name}\u201d`,
+              start: found.start,
+              end: found.end,
+              text: `${numberingPrefix(found.title)}${name}`,
+            }],
+            suggestion: null,
+          });
+        }
+        return;
+      }
+      issues.push({
+        id: `missing-${name.toLowerCase().replace(/ /g, '-')}`,
+        kind: 'structure',
+        title: `\u201c${name}\u201d section is missing`,
+        message: `A ${(kind || 'document').toLowerCase()} usually includes \u201c${name}\u201d. This document has no heading for it.`,
+        severity: 'medium',
+        location: `${headings.length} headings so far`,
+        start: last.start,
+        end: last.end,
+        related: [],
+        repairs: [],
+        suggestion: { title: name, level: Math.max(1, bodyLevel) },
+      });
+    });
+  }
+
+  // 2. Headings with nothing written under them.
+  headings.forEach((heading, index) => {
+    const next = headings[index + 1];
+    const body = text.slice(heading.end, next ? next.start : text.length);
+    if (body.trim()) return;
+    if (next && next.level > heading.level) return;   // a parent heading, not an empty section
+    issues.push({
+      id: `empty-${heading.start}`,
+      kind: 'structure',
+      title: 'Section has no text',
+      message: `\u201c${heading.title}\u201d has a heading but nothing written under it yet.`,
+      severity: 'low',
+      location: `Heading \u201c${heading.title}\u201d`,
+      start: heading.start,
+      end: heading.end,
+      related: [],
+      repairs: [],
+      suggestion: null,
+    });
+  });
+
+  // 3. A heading level that jumps (Heading 1 straight to Heading 3).
+  headings.forEach((after, index) => {
+    const before = headings[index - 1];
+    if (!before || after.level <= before.level + 1) return;
+    issues.push({
+      id: `level-${after.start}`,
+      kind: 'structure',
+      title: 'Heading level skipped',
+      message: `\u201c${after.title}\u201d is a Heading ${after.level} directly under a Heading ${before.level}. Use Heading ${before.level + 1} so the outline stays in order.`,
+      severity: 'low',
+      location: `Heading \u201c${after.title}\u201d`,
+      start: after.start,
+      end: after.end,
+      related: [{ start: before.start, end: before.end }],
+      repairs: [],
+      suggestion: null,
+    });
+  });
+
+  // 4. The same heading twice.
+  headings.forEach((heading, index) => {
+    if (!heading.title.trim()) return;
+    const earlier = headings
+      .slice(0, index)
+      .find((other) => other.title.trim().toLowerCase() === heading.title.trim().toLowerCase());
+    if (!earlier) return;
+    issues.push({
+      id: `duplicate-${heading.start}`,
+      kind: 'structure',
+      title: 'Two sections share a name',
+      message: `\u201c${heading.title}\u201d is used as a heading twice. Rename one of them.`,
+      severity: 'low',
+      location: `Heading \u201c${heading.title}\u201d`,
+      start: heading.start,
+      end: heading.end,
+      related: [{ start: earlier.start, end: earlier.end }],
+      repairs: [],
+      suggestion: null,
+    });
+  });
+
+  return issues;
+}
+
 const label = (sentence) => `Sentence ${sentence.index + 1}`;
 const topic = (shared) => shared.slice(0, 2).join(' / ');
 
-/** Reads a document and reports what is wrong with it. */
-export function analyze(text) {
+/**
+ * Reads a document and reports what is wrong with it.
+ * `outline` is the headings (see parseOutline) and `kind` the document's type.
+ */
+export function analyze(text, outline = '', kind = 'Other') {
   const sentences = splitSentences(text).slice(0, MAX_SENTENCES);
   const prepared = sentences
     .map((sentence) => ({
@@ -197,6 +386,7 @@ export function analyze(text) {
               { label: `Use ${first.raw} everywhere`, start: second.start, end: second.end, text: first.raw },
               { label: `Use ${second.raw} everywhere`, start: first.start, end: first.end, text: second.raw },
             ],
+            suggestion: null,
           });
         });
       });
@@ -214,6 +404,7 @@ export function analyze(text) {
           end: a.sentence.end,
           related: [{ start: b.sentence.start, end: b.sentence.end }],
           repairs: [],
+          suggestion: null,
         });
       }
 
@@ -231,11 +422,15 @@ export function analyze(text) {
             end: b.sentence.end,
             related: [{ start: a.sentence.start, end: a.sentence.end }],
             repairs: [{ label: 'Delete the repeat', start: b.sentence.start, end: b.sentence.end, text: '' }],
+            suggestion: null,
           });
         }
       }
     }
   }
+
+  const headings = parseOutline(outline);
+  issues.push(...structureIssues(text, headings, kind));
 
   return {
     version: 'javascript',
@@ -244,7 +439,8 @@ export function analyze(text) {
       sentences: sentences.length,
       words: wordsOf(text).length,
       numbers: prepared.reduce((total, item) => total + item.numbers.length, 0),
-      checks: 3,
+      headings: headings.length,
+      checks: 7,
     },
   };
 }

@@ -30,6 +30,13 @@ pub struct Repair {
     pub text: String,
 }
 
+/// A heading the writer could add (used by the structure checks).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Suggestion {
+    pub title: String,
+    pub level: u8,
+}
+
 /// Something the engine wants the writer to look at.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Issue {
@@ -48,6 +55,8 @@ pub struct Issue {
     /// The other places involved in the same issue.
     pub related: Vec<Span>,
     pub repairs: Vec<Repair>,
+    /// A heading the editor can add with one click (structure issues only).
+    pub suggestion: Option<Suggestion>,
 }
 
 /// Sentences longer than this are ignored by the pair checks (tables, lists of numbers).
@@ -160,6 +169,7 @@ fn number_conflicts(a: &Prepared, b: &Prepared, shared: &[String], issues: &mut 
                         text: second.raw.clone(),
                     },
                 ],
+                suggestion: None,
             });
         }
     }
@@ -193,6 +203,7 @@ fn claim_conflict(a: &Prepared, b: &Prepared, shared: &[String], issues: &mut Ve
         end: a.sentence.end,
         related: vec![Span { start: b.sentence.start, end: b.sentence.end }],
         repairs: Vec::new(), // a human has to decide which version is true
+        suggestion: None,
     });
 }
 
@@ -229,6 +240,7 @@ fn repetition(a: &Prepared, b: &Prepared, issues: &mut Vec<Issue>) {
             end: b.sentence.end,
             text: String::new(),
         }],
+        suggestion: None,
     });
 }
 

@@ -175,6 +175,7 @@ function Editor() {
     id: doc.id,
     title: doc.title,
     type: doc.format ?? 'DOCX',
+    kind: doc.type ?? 'Other', // Thesis / Report / Legal… — the engine's structure template
     pages: pagesFor(doc.wordCount),
     color: doc.tint ?? 'gold',
   }));
@@ -225,7 +226,11 @@ function Editor() {
 
   // The ODIE engine (Rust → WebAssembly, in a Web Worker): it re-reads the
   // document about a second after typing stops and reports what it finds.
-  const engine = useEngine(editor, { enabled: heatmapEnabled, docId: selectedId });
+  const engine = useEngine(editor, {
+    enabled: heatmapEnabled,
+    docId: selectedId,
+    kind: currentDocument?.kind ?? 'Other',
+  });
 
   // Which toolbar buttons should look pressed for the text under the cursor.
   const formats = useEditorState({
@@ -571,6 +576,15 @@ function Editor() {
     }
     if (engine.applyRepair(issue, repair)) announce(`Fixed: ${repair.label}`);
     else announce('The text moved. Checking the document again…');
+  };
+
+  /** Adds the heading the engine suggests for a missing section. */
+  const addHeading = (issue) => {
+    if (!canEdit()) {
+      announce('Open a document first.');
+      return;
+    }
+    if (engine.addHeading(issue)) announce(`“${issue.suggestion.title}” heading added at the end`);
   };
 
   const ignoreIssue = (issue) => {
@@ -1008,6 +1022,9 @@ function Editor() {
                               {issue.repairs.map((repair) => (
                                 <button type="button" key={repair.label} onClick={() => applyRepair(issue, repair)} className="editor-issue-action action-fix">{repair.label}</button>
                               ))}
+                              {issue.suggestion && (
+                                <button type="button" onClick={() => addHeading(issue)} className="editor-issue-action action-fix">Add “{issue.suggestion.title}” heading</button>
+                              )}
                               <button type="button" onClick={() => engine.goToIssue(issue)} className="editor-issue-action action-source">Show me</button>
                               <button type="button" onClick={() => ignoreIssue(issue)} className="editor-issue-action action-ignore">Ignore</button>
                             </div>
@@ -1032,11 +1049,34 @@ function Editor() {
                 {reviewTab === 'Structure' && (
                   <div className="editor-insight-panel">
                     <p className="editor-insight-kicker">Document outline</p>
-                    <h3>Clear progression</h3>
-                    <div className="editor-outline-item is-current"><span>01</span> Introduction <em>4 min</em></div>
-                    <div className="editor-outline-item"><span>02</span> Literature Review <em>7 min</em></div>
-                    <div className="editor-outline-item"><span>03</span> Methodology <em>6 min</em></div>
-                    <div className="editor-outline-note"><CheckCircle2 size={15} /> No orphaned headings detected.</div>
+                    <h3>{engine.outline.length ? `${engine.outline.length} ${engine.outline.length === 1 ? 'heading' : 'headings'}` : 'No headings yet'}</h3>
+
+                    {engine.outline.map((heading, index) => (
+                      <button
+                        type="button"
+                        key={`${heading.start}-${heading.title}`}
+                        className={`editor-outline-item level-${heading.level}`}
+                        onClick={() => engine.goToOffset(heading.start, heading.end)}
+                        title="Go to this heading"
+                      >
+                        <span>{String(index + 1).padStart(2, '0')}</span>
+                        {heading.title || 'Untitled heading'}
+                        <em>H{heading.level}</em>
+                      </button>
+                    ))}
+
+                    {!engine.outline.length && (
+                      <p className="editor-outline-empty">
+                        Give your sections headings from the Styles gallery (Heading 1, 2 or 3). DocuMend then checks the
+                        outline for missing sections and empty ones.
+                      </p>
+                    )}
+
+                    <div className="editor-outline-note">
+                      {engine.counts.structure > 0
+                        ? (<><AlertTriangle size={15} /> {engine.counts.structure} structure {engine.counts.structure === 1 ? 'issue' : 'issues'} — see the Issues tab.</>)
+                        : (<><CheckCircle2 size={15} /> {engine.outline.length ? 'The outline looks complete.' : 'Nothing to check yet.'}</>)}
+                    </div>
                   </div>
                 )}
 
@@ -1058,7 +1098,7 @@ function Editor() {
                     <div className="editor-stat-grid">
                       <div><strong>{wordCount.toLocaleString()}</strong><span>Words</span></div>
                       <div><strong>{Math.max(1, Math.ceil(wordCount / 200))} min</strong><span>Read time</span></div>
-                      <div><strong>{engine.stats?.sentences ?? 0}</strong><span>Sentences</span></div>
+                      <div><strong>{engine.stats?.headings ?? 0}</strong><span>Headings</span></div>
                       <div><strong>{issueCount}</strong><span>Open issues</span></div>
                     </div>
                     <div className="editor-stat-bar"><span style={{ width: `${Math.max(4, 100 - Math.min(100, issueCount * 10))}%` }} /></div>
