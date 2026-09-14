@@ -51,5 +51,14 @@ export async function revokeSession(token) {
 
 /** What the browser is allowed to know about the signed-in user. */
 export function publicUser(user) {
-  return { id: user.id, email: user.email, name: user.name, tier: user.tier, createdAt: user.createdAt };
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    tier: user.tier,
+    createdAt: user.createdAt,
+    // Not the password, and not its hash: only whether one exists. The
+    // "choose a password" screen needs to know whether to ask for the old one.
+    hasPassword: Boolean(user.passwordHash && user.passwordSalt),
+  };
 }

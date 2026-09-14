@@ -28,8 +28,9 @@
     "dexie": "^4.4.6",
     "dexie-react-hooks": "^4.4.0",
     "docx": "^9.7.1",
+    "firebase": "^11.10.0",
     "lucide-react": "^0.545.0",
-    "mammoth": "^1.12.2",
+    "mammoth": "^1.12.3",
     "pdfjs-dist": "^6.3.289",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"

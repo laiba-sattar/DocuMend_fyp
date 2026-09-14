@@ -19,6 +19,8 @@
 */
 
 import { useState } from "react";
+import { useAuth } from "../components/AuthContext";
+import { SocialSignIn } from "../components/SocialSignIn";
 // Lucide icons used across the UI
 import {
   ArrowLeft,
@@ -148,6 +150,10 @@ export default function LogIn() {
   // Tracks which fields the user has focused and left (blurred)
   const [touched, setTouched] = useState({});
 
+  // The real sign-in, from the API (S5).
+  const { signIn } = useAuth();
+  const [busy, setBusy] = useState(false);
+
   // Helper function to update input state and clear old status messages
   const updateField = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -167,12 +173,12 @@ export default function LogIn() {
         : "",
   };
 
-  // Handles form submission
-  const handleSubmit = (event) => {
+  // Handles form submission: this now really signs in against the API.
+  const handleSubmit = async (event) => {
     event.preventDefault();
 
     // Second press, once signed in: the button has become the way into the
-    // app, so take them there instead of re-validating the form.
+    // app, so take them there instead of signing in again.
     if (submitted) {
       navigate("/dashboard");
       return;
@@ -181,29 +187,28 @@ export default function LogIn() {
     // Mark both fields as touched when the user clicks submit
     setTouched({ email: true, password: true });
 
-    // Validate inputs
     const isValid =
       /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email) &&
       form.password.length >= 8;
+    if (!isValid || busy) return;
 
-    // Show success message if everything is valid
-    if (isValid) {
+    setBusy(true);
+    setMessage("");
+    try {
+      const account = await signIn({ email: form.email.trim(), password: form.password });
       setSubmitted(true);
-      setMessage(
-        rememberMe
-          ? "You’re signed in and we’ll remember this device."
-          : "You’re signed in. Welcome back to DocuMend.",
-      );
+      setMessage(`Welcome back, ${account.name.split(" ")[0]}. Opening your workspace…`);
+      window.setTimeout(() => navigate("/dashboard"), 600);
+    } catch (error) {
+      // The server's own words: wrong password, server unreachable, and so on.
+      setMessage(error.message || "That did not work. Please try again.");
+    } finally {
+      setBusy(false);
     }
   };
 
-  // Simulates third-party social login (Google / Facebook)
-  const continueWith = (provider) => {
-    setMessage(`Continuing with ${provider}...`);
-    window.setTimeout(() => {
-      setMessage(`${provider} is ready when you are.`);
-    }, 700);
-  };
+  // The emailed sign-in link is finished inside <SocialSignIn>, which is
+  // where Firebase lives — see components/SocialSignIn.jsx.
 
   return (
     <main className="login-shell">
@@ -370,24 +375,9 @@ export default function LogIn() {
           <div className="login-divider">or continue with</div>
 
           {/* SOCIAL LOGIN BUTTONS */}
-          <div className="login-socials">
-            <button
-              className="login-social"
-              type="button"
-              onClick={() => continueWith("Google")}
-            >
-              <GoogleIcon />
-              Google
-            </button>
-            <button
-              className="login-social"
-              type="button"
-              onClick={() => continueWith("Facebook")}
-            >
-              <FacebookIcon />
-              Facebook
-            </button>
-          </div>
+          {/* Google (no Firebase) and a one-time link by email — see
+              components/SocialSignIn.jsx */}
+          <SocialSignIn onMessage={setMessage} buttonClass="login-social" />
 
           {/* Dynamic feedback message (e.g. social login status) */}
           <p className="login-social-note" aria-live="polite">

@@ -6,7 +6,7 @@
  *
  * Routes:
  *   GET  /health        is the server (and the database) alive?
- *   /auth/*             accounts — see routes/auth.js
+ *   /auth/*             accounts — routes/auth.js and routes/firebase.js
  *   /documents/*        metadata only — see routes/documents.js
  */
 import 'dotenv/config';
@@ -15,6 +15,7 @@ import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import { prisma } from './lib/prisma.js';
 import authRoutes from './routes/auth.js';
+import firebaseRoutes from './routes/firebase.js';
 import documentRoutes from './routes/documents.js';
 
 const PORT = Number(process.env.PORT ?? 4000);
@@ -52,6 +53,7 @@ app.get('/health', async () => {
 });
 
 await app.register(authRoutes);
+await app.register(firebaseRoutes);    // Continue with Google, and email links
 await app.register(documentRoutes);
 
 /** One shape for every error, so the app never has to guess. */

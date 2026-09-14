@@ -19,6 +19,7 @@
  * stay in each page's own stylesheet.
  */
 import { useState } from 'react';
+import { useAuth } from './AuthContext';
 import './workspace-chrome.css';
 import {
   Bell,
@@ -231,16 +232,34 @@ export function WorkspaceHeader({ search, onSearchChange, onAnnounce }) {
           <Bell size={17} strokeWidth={1.8} /><span className="dash-pip" />
         </button>
         <span className="dash-divider" />
-        <button type="button" onClick={() => onAnnounce('Profile menu is ready')} className="dash-profile">
-          <span className="dash-avatar">MH</span>
-          <span className="dash-profile-text">
-            <span className="dash-profile-name">Mahnoor</span>
-            <span className="dash-profile-role">Personal workspace</span>
-          </span>
-          <ChevronDown size={14} />
-        </button>
+        <ProfileButton onAnnounce={onAnnounce} />
       </div>
     </header>
+  );
+}
+
+/**
+ * The signed-in user in the header: their initials, their first name (S5).
+ * Before anyone signs in it simply says "You", so the header never looks broken.
+ */
+function ProfileButton({ onAnnounce }) {
+  const { user } = useAuth();
+  const name = user?.name?.trim() || 'You';
+  const initials = name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('') || 'Y';
+
+  return (
+    <button type="button" onClick={() => onAnnounce('Profile menu is ready')} className="dash-profile">
+      <span className="dash-avatar">{initials}</span>
+      <span className="dash-profile-text">
+        <span className="dash-profile-name">{name.split(/\s+/)[0]}</span>
+        <span className="dash-profile-role">{user ? `${user.tier[0]}${user.tier.slice(1).toLowerCase()} plan` : 'Personal workspace'}</span>
+      </span>
+      <ChevronDown size={14} />
+    </button>
   );
 }
 
@@ -254,6 +273,7 @@ export function WorkspaceHeader({ search, onSearchChange, onAnnounce }) {
  */
 export function WorkspaceModal({ mode, initialValue, onClose, onSubmit, onLogout }) {
   const [value, setValue] = useState(initialValue);
+  const { signOut } = useAuth();
 
   if (!mode) return null;
 
@@ -267,7 +287,9 @@ export function WorkspaceModal({ mode, initialValue, onClose, onSubmit, onLogout
 
   const submit = (event) => {
     event.preventDefault();
-    if (isLogout) onLogout();
+    // Really sign out — the refresh token is revoked on the server too —
+    // and then let the page do whatever it does next (usually go home).
+    if (isLogout) signOut().finally(() => onLogout());
     else if (value.trim()) onSubmit(value.trim());
   };
 

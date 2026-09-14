@@ -10,6 +10,8 @@
  * `continueWith` to a real API / OAuth provider when the backend exists.
  */
 import { useState } from "react";
+import { useAuth } from "../components/AuthContext";
+import { SocialSignIn } from "../components/SocialSignIn";
 import {
   ArrowLeft,
   ArrowRight,
@@ -127,12 +129,18 @@ export default function SignUp() {
   // wall of red before they have typed anything.
   const [touched, setTouched] = useState({});
 
+  // The real "create account", from the API (S5).
+  const { signUp } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState("");
+
   // Every keystroke clears the previous outcome, so a stale "Account created"
   // banner can't linger while the user is editing their details.
   const updateField = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
     setSubmitted(false);
     setSocialMessage("");
+    setProblem("");
   };
 
   // Validation is derived from state rather than stored in it -- it is
@@ -163,7 +171,7 @@ export default function SignUp() {
     setTouched((current) => ({ ...current, [field]: true }));
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault(); // keep the browser from doing a full page reload
 
     // Second press, once the account exists: the button has become the way
@@ -192,19 +200,27 @@ export default function SignUp() {
       /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email) &&
       form.password.length >= 8;
 
-    if (isValid) {
-      setSubmitted(true); // replace with the real "create account" API call
+    if (!isValid || busy) return;
+
+    setBusy(true);
+    setProblem("");
+    try {
+      await signUp({
+        email: form.email.trim(),
+        name: `${form.firstName.trim()} ${form.lastName.trim()}`.trim(),
+        password: form.password,
+      });
+      setSubmitted(true);
+      window.setTimeout(() => navigate('/dashboard'), 700);
+    } catch (error) {
+      // "An account with this email already exists", and the like.
+      setProblem(error.message || 'The account could not be created.');
+    } finally {
+      setBusy(false);
     }
   };
 
-  // Placeholder for OAuth. The delay just fakes a round-trip so the button
-  // feels responsive; swap the whole body for a real provider redirect.
-  const continueWith = (provider) => {
-    setSocialMessage(`Continuing with ${provider}...`);
-    window.setTimeout(() => {
-      setSocialMessage(`${provider} is ready when you are.`);
-    }, 700);
-  };
+
 
   return (
     <main className="signup-shell">
@@ -372,8 +388,12 @@ export default function SignUp() {
 
             {/* Keeps the arrow in the success state too: the button is no
                 longer a passive "done" label, it now leads to the dashboard. */}
-            <button className="signup-submit" type="submit">
-              {submitted ? "You're all set" : "Create my account"}
+            {problem && (
+              <p className="signup-problem" role="alert">{problem}</p>
+            )}
+
+            <button className="signup-submit" type="submit" disabled={busy}>
+              {submitted ? "You're all set" : busy ? "Creating your account…" : "Create my account"}
               <ArrowRight size={16} />
             </button>
           </form>
@@ -381,24 +401,9 @@ export default function SignUp() {
           {/* ---------- Social sign-up options ---------- */}
           <div className="signup-divider">or continue with</div>
 
-          <div className="signup-socials">
-            <button
-              className="signup-social"
-              type="button"
-              onClick={() => continueWith("Google")}
-            >
-              <GoogleIcon />
-              Google
-            </button>
-            <button
-              className="signup-social"
-              type="button"
-              onClick={() => continueWith("Facebook")}
-            >
-              <FacebookIcon />
-              Facebook
-            </button>
-          </div>
+          {/* Google (no Firebase) and a one-time link by email — see
+              components/SocialSignIn.jsx */}
+          <SocialSignIn onMessage={setSocialMessage} buttonClass="signup-social" />
 
           {/* `aria-live` announces the status text whenever it changes. It
               stays in the DOM even when empty so the region is registered. */}

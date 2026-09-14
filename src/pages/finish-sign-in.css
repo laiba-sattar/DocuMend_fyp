@@ -1,0 +1,63 @@
+/* finish-sign-in.css — the few seconds between the inbox and the dashboard.
+   Same cream as the sign-in screens, so the jump feels like one journey. */
+
+.finish-signin {
+  display: flex;
+  min-height: 100dvh;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  background: #fdfaf3;
+  color: #2b3a33;
+  text-align: center;
+}
+
+.finish-signin svg { color: #234436; }
+
+.finish-signin h1 {
+  margin: 4px 0 0;
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -.01em;
+}
+
+.finish-signin p {
+  margin: 0;
+  max-width: 34ch;
+  color: #8b8478;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.finish-signin button {
+  margin-top: 8px;
+  height: 44px;
+  border: 1px solid #234436;
+  border-radius: 12px;
+  padding: 0 22px;
+  background: #234436;
+  color: #fdfaf3;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s ease;
+}
+.finish-signin button:hover { background: #2f5a46; }
+
+.finish-signin-spinner {
+  width: 28px;
+  height: 28px;
+  border: 2px solid #e2d8c7;
+  border-top-color: #234436;
+  border-radius: 50%;
+  animation: finish-signin-spin .8s linear infinite;
+}
+
+@keyframes finish-signin-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .finish-signin-spinner { animation: none; }
+}

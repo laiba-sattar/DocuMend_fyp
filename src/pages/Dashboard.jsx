@@ -31,6 +31,7 @@ import {
 } from '../components/WorkspaceChrome';
 import { workspaceRoutes } from '../components/workspace-nav';
 import { useTheme } from '../components/ThemeContext';
+import { useAuth } from '../components/AuthContext';
 import { navigate } from '../router';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { createDocument, listDocuments, updateDocument } from '../storage/documents';
@@ -156,6 +157,7 @@ function DocumentRow({ doc, selected, onSelect, onOpen }) {
    ========================================================================== */
 function Dashboard() {
   const { darkMode, toggleDarkMode } = useTheme();
+  const { firstName } = useAuth(); // the real name from the account (S5)
 
   // Workspace Chrome shell states
   const [activeNav, setActiveNav] = useState('Dashboard');
@@ -317,7 +319,7 @@ function Dashboard() {
           <div className="dash-greeting dash-rise dash-d1">
             <div>
               <p className="dash-date">Tuesday, September 1, 2026</p>
-              <h1 className="dash-title dash-serif">Hello, Mahnoor<em>.</em></h1>
+              <h1 className="dash-title dash-serif">Hello, {firstName || 'there'}<em>.</em></h1>
               <p className="dash-subtitle">Welcome back. Your ideas are safe here — ready when you are.</p>
             </div>
             <div className="dash-privacy-pill">

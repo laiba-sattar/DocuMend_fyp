@@ -22,12 +22,18 @@ enum Tier {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  name         String
+  id    String @id @default(cuid())
+  email String @unique
+  name  String
   /// scrypt hash of the password, and the salt it used. Never the password.
-  passwordHash String
-  passwordSalt String
+  /// Empty for accounts that only ever sign in with Google or an email link.
+  passwordHash String?
+  passwordSalt String?
+  /// Firebase's permanent id for this person, from Google or an email link.
+  firebaseUid  String?  @unique
+  avatarUrl    String?
+  /// True once Google vouched for the address, or an email link was opened.
+  emailVerified Boolean @default(false)
   tier         Tier     @default(BASIC)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt

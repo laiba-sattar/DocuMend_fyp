@@ -1,0 +1,32 @@
+/* require-account.css — the short wait before the workspace appears. */
+
+.account-gate {
+  display: flex;
+  min-height: 100dvh;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: #f3f6f3;
+  color: #4c6155;
+  font-size: 13.5px;
+}
+
+.account-gate p { margin: 0; }
+
+.account-gate-spinner {
+  width: 26px;
+  height: 26px;
+  border: 2px solid #cdd9cf;
+  border-top-color: #2f6b4f;
+  border-radius: 50%;
+  animation: account-gate-spin .8s linear infinite;
+}
+
+@keyframes account-gate-spin { to { transform: rotate(360deg); } }
+
+.dash-dark .account-gate { background: #0f1b16; color: #aabdb2; }
+
+@media (prefers-reduced-motion: reduce) {
+  .account-gate-spinner { animation: none; }
+}
