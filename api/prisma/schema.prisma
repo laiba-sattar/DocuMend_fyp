@@ -1,0 +1,73 @@
+// DocuMend's database.
+//
+// The rule that shapes this whole file: **no document text is ever stored
+// here.** The server knows a document exists, who owns it, its title and how
+// big it is — nothing of what it says. The text stays in the browser
+// (IndexedDB), and later syncs as an encrypted blob to object storage (S9).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// What the account is allowed to do. The Pricing page's three plans.
+enum Tier {
+  BASIC
+  PREMIUM
+  ENTERPRISE
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  /// scrypt hash of the password, and the salt it used. Never the password.
+  passwordHash String
+  passwordSalt String
+  tier         Tier     @default(BASIC)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions  Session[]
+  documents DocumentMeta[]
+}
+
+/// One signed-in device. Holds the *hash* of a refresh token, so a stolen
+/// database still cannot be used to sign in as somebody.
+model Session {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  userAgent String?
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  @@index([userId])
+}
+
+/// Metadata only — title, size, dates. The `id` is the same id the browser
+/// gave the document, so the two sides always talk about the same thing.
+model DocumentMeta {
+  id              String   @id
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title           String
+  type            String   @default("Other")
+  category        String   @default("Draft")
+  folderId        String   @default("root")
+  wordCount       Int      @default(0)
+  pages           Int      @default(1)
+  sizeBytes       Int      @default(0)
+  /// When the browser last changed it, and when the server last heard about it.
+  deviceUpdatedAt DateTime
+  syncedAt        DateTime @default(now())
+  deletedAt       DateTime?
+
+  @@index([userId, syncedAt])
+}
