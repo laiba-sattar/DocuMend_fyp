@@ -24,6 +24,7 @@ import { useEffect, useMemo, useState } from 'react';
 import './my-documents.css';
 import {
   FileText,
+  Laptop,
   LockKeyhole,
   Pencil,
   Plus,
@@ -43,6 +44,7 @@ import { useTheme } from '../components/ThemeContext';
 import { navigate } from '../router';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { createDocument, listDocuments } from '../storage/documents';
+import { listRemote } from '../sync/metadata';
 import { formatModified, pageLabel, pagesFor } from '../storage/format';
 
 /* ==========================================================================
@@ -64,23 +66,57 @@ function toCard(doc) {
   };
 }
 
+/**
+ * A document the account knows about but this computer does not have.
+ *
+ * The server keeps names and dates, never text, so this card can say what the
+ * document is and cannot open it. Saying so plainly is better than hiding it:
+ * the reader knows the work is safe, and knows which machine to go to.
+ */
+function toElsewhereCard(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    type: 'DOCX',
+    category: row.category ?? 'Draft',
+    tint: 'sage',
+    status: 'elsewhere',
+    elsewhere: true,
+    wordCount: row.wordCount ?? 0,
+    pages: Math.max(1, row.pages ?? 1),
+    modified: formatModified(new Date(row.deviceUpdatedAt).getTime()),
+    tags: [{ label: row.type ?? 'Other', tone: 'info' }],
+  };
+}
+
 /* ==========================================================================
    Pieces
    ========================================================================== */
 
 function DocumentCard({ doc, onOpen }) {
   return (
-    <button type="button" onClick={onOpen} className="docs-card dash-lift">
+    <button
+      type="button"
+      onClick={onOpen}
+      className={`docs-card dash-lift${doc.elsewhere ? ' docs-card-elsewhere' : ''}`}
+    >
       <span className={`docs-preview docs-preview-${doc.tint}`}>
         <span className="docs-preview-lines" aria-hidden="true">
           <span /><span /><span />
         </span>
         <span className="docs-preview-icon"><FileText size={22} strokeWidth={2} /></span>
         <span className="docs-preview-type">{doc.type}</span>
+        {doc.elsewhere && (
+          <span className="docs-preview-badge">
+            <Laptop size={12} strokeWidth={2} /> Another device
+          </span>
+        )}
       </span>
       <span className="docs-card-body">
         <span className="docs-card-title dash-serif">{doc.title}</span>
-        <span className="docs-card-meta">Modified {doc.modified} · {pageLabel(doc.pages)}</span>
+        <span className="docs-card-meta">
+          {doc.elsewhere ? 'Last edited' : 'Modified'} {doc.modified} · {pageLabel(doc.pages)}
+        </span>
         <span className="docs-tags">
           {doc.tags.map((tag) => (
             <span key={tag.label} className={`docs-tag docs-tag-${tag.tone}`}>{tag.label}</span>
@@ -107,15 +143,30 @@ function MyDocuments() {
   const [search, setSearch] = useState('');
   // Live list from IndexedDB: updates by itself when a document is added or changed.
   const storedDocuments = useLiveQuery(listDocuments, []);
+  // What the account has, as last heard from the server. Empty when signed out.
+  const remoteDocuments = useLiveQuery(listRemote, []);
   const loading = storedDocuments === undefined;
-  const documents = useMemo(() => (storedDocuments ?? []).map(toCard), [storedDocuments]);
+
+  const documents = useMemo(() => {
+    const here = (storedDocuments ?? []).map(toCard);
+    const hereIds = new Set(here.map((doc) => doc.id));
+    // Anything the account knows about that is not on this computer.
+    const elsewhere = (remoteDocuments ?? [])
+      .filter((row) => !hereIds.has(row.id))
+      .map(toElsewhereCard);
+    return [...here, ...elsewhere];
+  }, [storedDocuments, remoteDocuments]);
+
+  const elsewhereCount = documents.filter((doc) => doc.elsewhere).length;
 
   const stats = [
     { icon: FileText, value: String(documents.length), label: 'Total Documents', tone: 'cream' },
     { icon: Pencil, value: String(documents.filter((doc) => doc.status === 'draft').length), label: 'Drafts in progress', tone: 'lavender' },
     { icon: TriangleAlert, value: String(documents.reduce((sum, doc) => sum + (doc.issueCount ?? 0), 0)), label: 'Issues found', tone: 'peach' },
     // Switches to "AES-256 · All docs encrypted" once section S3 (encryption) is done.
-    { icon: LockKeyhole, value: 'Local', label: 'Stored on this device', tone: 'sky' },
+    elsewhereCount > 0
+      ? { icon: Laptop, value: String(elsewhereCount), label: 'On another device', tone: 'sky' }
+      : { icon: LockKeyhole, value: 'Local', label: 'Stored on this device', tone: 'sky' },
   ];
   const [modal, setModal] = useState(null);
   const [toast, setToast] = useState('');
@@ -300,7 +351,15 @@ function MyDocuments() {
                 <DocumentCard
                   key={doc.id}
                   doc={doc}
-                  onOpen={() => navigate(`/editor?doc=${doc.id}`)}
+                  onOpen={() => {
+                    // A document that is only on the account cannot be opened
+                    // here: the server has its name, never its words.
+                    if (doc.elsewhere) {
+                      announce(`"${doc.title}" is on another device. Its text never left that computer.`);
+                      return;
+                    }
+                    navigate(`/editor?doc=${doc.id}`);
+                  }}
                 />
               ))}
             </div>

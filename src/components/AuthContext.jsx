@@ -12,6 +12,7 @@
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { api, hasStoredSession } from '../api/client';
+import { startSync, stopSync } from '../sync/metadata';
 
 const AuthContext = createContext(null);
 
@@ -36,6 +37,16 @@ export function AuthProvider({ children }) {
         setStatus('signed-out');
       });
     return () => { alive = false; };
+  }, [status]);
+
+  /**
+   * The document LIST follows the account; the text stays on this device.
+   * Starting this here, rather than in a page, means it runs whichever screen
+   * the reader happens to open first.
+   */
+  useEffect(() => {
+    if (status === 'signed-in') startSync();
+    else if (status === 'signed-out') stopSync();
   }, [status]);
 
   const signIn = useCallback(async (credentials) => {

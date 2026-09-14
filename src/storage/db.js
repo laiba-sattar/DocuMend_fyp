@@ -21,6 +21,27 @@ db.version(1).stores({
   settings: 'key',
 });
 
+/**
+ * Version 2 (section S5) — two stores for the account.
+ *
+ *   syncQueue   changes waiting to be told to the server. The primary key is
+ *               the document's own id, so a document that is edited ten times
+ *               while offline still leaves exactly one entry to send.
+ *   remoteDocs  the list the server has, as last seen. This is what lets the
+ *               library show a document that lives on another computer.
+ *
+ * Neither store ever holds document text. Version 1's stores are repeated
+ * unchanged, which is how Dexie upgrades: the newest version lists everything.
+ */
+db.version(2).stores({
+  documents: 'id, folderId, category, updatedAt',
+  folders: 'id, parentId, name',
+  versions: 'id, docId, createdAt',
+  settings: 'key',
+  syncQueue: 'id, queuedAt',
+  remoteDocs: 'id, deviceUpdatedAt',
+});
+
 /** An id that also works on http:// LAN addresses, where crypto.randomUUID is missing. */
 export function newId() {
   if (window.crypto?.randomUUID) return window.crypto.randomUUID();
