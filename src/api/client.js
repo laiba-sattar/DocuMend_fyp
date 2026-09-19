@@ -172,6 +172,15 @@ export const api = {
       },
     }),
 
+  /** Changes the name shown around the app. The email address is fixed. */
+  updateProfile: async ({ name }) => (await authorized('/auth/me', { method: 'PATCH', body: { name } })).user,
+
+  /** Ends every session on every device, this one included. */
+  signOutEverywhere: () => authorized('/auth/logout-all', { method: 'POST' }),
+
+  /** Closes the account on the server. Documents live in the browser. */
+  deleteAccount: () => authorized('/auth/me', { method: 'DELETE' }),
+
   async logout() {
     const refreshToken = readRefreshToken();
     accessToken = null;

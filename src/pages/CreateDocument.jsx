@@ -20,7 +20,7 @@
  * Confirming sends the reader into the editor, which is where "Create
  * document" always landed before this screen existed.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import './create-document.css';
 import {
   Check,
@@ -41,6 +41,7 @@ import {
 import { workspaceRoutes } from '../components/workspace-nav';
 import { useTheme } from '../components/ThemeContext';
 import { navigate } from '../router';
+import { usePreference } from '../settings/preferences';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { createDocument as saveNewDocument } from '../storage/documents';
 import { listFolderOptions, ROOT_FOLDER } from '../storage/folders';
@@ -80,7 +81,16 @@ export default function CreateDocument() {
 
   // Page state. The name is seeded once, from the URL.
   const [name, setName] = useState(nameFromUrl);
-  const [type, setType] = useState('Thesis');
+  // The default comes from Settings → Document types, so someone writing one
+  // thesis chapter after another is not choosing it every time.
+  const [defaultKind] = usePreference('defaultKind');
+  const [type, setType] = useState(defaultKind);
+  const [typeTouched, setTypeTouched] = useState(false);
+  // The preference arrives a moment after the first render (it is read from
+  // IndexedDB), so it is applied then — unless a choice has already been made.
+  useEffect(() => {
+    if (!typeTouched && defaultKind && TYPES.includes(defaultKind)) setType(defaultKind);
+  }, [defaultKind, typeTouched]);
   const [query, setQuery] = useState('');
   const [folder, setFolder] = useState('root');
   const [saving, setSaving] = useState(false);
@@ -137,7 +147,10 @@ export default function CreateDocument() {
       navigate(`/editor?doc=${doc.id}`);
     } catch (error) {
       console.error(error);
-      announce('The document could not be saved. Check that your browser allows site storage, then try again.');
+      // A plan limit is a decision, not a failure — say which one it was.
+      announce(error?.code === 'plan_limit'
+        ? error.message
+        : 'The document could not be saved. Check that your browser allows site storage, then try again.');
       setSaving(false);
     }
   };
@@ -228,7 +241,7 @@ export default function CreateDocument() {
                         key={option}
                         type="button"
                         aria-pressed={option === type}
-                        onClick={() => setType(option)}
+                        onClick={() => { setTypeTouched(true); setType(option); }}
                         className={`newdoc-type ${option === type ? 'is-active' : ''}`}
                       >
                         {option}

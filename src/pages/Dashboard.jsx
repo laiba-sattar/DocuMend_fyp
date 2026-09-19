@@ -16,10 +16,9 @@ import {
   Lightbulb,
   ListFilter,
   LockKeyhole,
-  MoreHorizontal,
+  UnlockKeyhole,
   Pencil,
   Plus,
-  Search,
   Upload,
 } from 'lucide-react';
 import {
@@ -33,8 +32,10 @@ import { workspaceRoutes } from '../components/workspace-nav';
 import { useTheme } from '../components/ThemeContext';
 import { useAuth } from '../components/AuthContext';
 import { navigate } from '../router';
+import { usePreference } from '../settings/preferences';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { createDocument, listDocuments, updateDocument } from '../storage/documents';
+import { pendingCount } from '../sync/metadata';
 import { formatModified, pageLabel, pagesFor } from '../storage/format';
 import { importFile } from '../editor/importers';
 import { formatBytes, formatPercent, getStorageReport } from '../storage/quota';
@@ -42,6 +43,22 @@ import { formatBytes, formatPercent, getStorageReport } from '../storage/quota';
 /* ==========================================================================
    Content data
    ========================================================================== */
+
+/**
+ * Which of the three columns a document belongs in.
+ *
+ *   Done         the writer marked it finished
+ *   In progress  it has words in it
+ *   Not started  it was created and never written in
+ *
+ * "Not started" replaced a column called Backlog, which counted nothing: a
+ * document either has words or it does not, and a page you have not begun is
+ * the one worth being reminded of.
+ */
+function stageOf(doc) {
+  if (doc.status === 'done') return 'Done';
+  return (doc.wordCount ?? 0) > 0 ? 'In progress' : 'Not started';
+}
 
 /** Shapes a stored document record into what DocumentRow draws. */
 function toRow(doc) {
@@ -52,16 +69,24 @@ function toRow(doc) {
     type: doc.format ?? 'DOCX',
     edited: edited.charAt(0).toUpperCase() + edited.slice(1),
     pages: pagesFor(doc.wordCount),
-    status: doc.status === 'done' ? 'Done' : 'In progress',
+    status: stageOf(doc),
+    words: doc.wordCount ?? 0,
     color: doc.tint ?? 'gold',
   };
 }
 
-const statusClass = {
-  Done: 'dash-status-done',
-  'In progress': 'dash-status-progress',
-  Backlog: 'dash-status-backlog',
-};
+/** "Tuesday, 15 September 2026" — today, in the reader's own language. */
+function todayLabel() {
+  return new Date().toLocaleDateString(undefined, {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
+/** What the Filter button steps through, in order. */
+const STAGES = ['All', 'In progress', 'Done', 'Not started'];
 
 /* ==========================================================================
    Pieces
@@ -86,37 +111,70 @@ function QuickAction({ icon: Icon, title, description, tone, onClick, onDrop }) 
   );
 }
 
-function ProjectSummary() {
+/**
+ * The completion ring — counted from the reader's own documents.
+ *
+ * It used to say 71% over eight finished projects no matter what was on the
+ * screen, which is worse than saying nothing: a dashboard that invents numbers
+ * teaches you to stop reading it. Now the ring is finished ÷ total and the
+ * three counts are real; the line under it says what an empty one means.
+ */
+function ProjectSummary({ documents }) {
+  const total = documents.length;
+  const done = documents.filter((doc) => doc.status === 'Done').length;
+  const inProgress = documents.filter((doc) => doc.status === 'In progress').length;
+  const notStarted = total - done - inProgress;
+
+  const percent = total ? Math.round((done / total) * 100) : 0;
+  const CIRCUMFERENCE = 295; // 2πr for r = 47
+  const words = documents.reduce((sum, doc) => sum + doc.words, 0);
+
+  const pad = (value) => String(value).padStart(2, '0');
+
   return (
     <section className="dash-summary">
       <div className="dash-summary-head">
         <div>
-          <p className="dash-eyebrow">This month</p>
-          <h2 className="dash-card-title dash-serif">Project completion</h2>
+          <p className="dash-eyebrow">Your work</p>
+          <h2 className="dash-card-title dash-serif">Documents finished</h2>
         </div>
-        <button type="button" className="dash-ghost-btn" aria-label="Filter project summary"><MoreHorizontal size={17} /></button>
+        {/* A "filter project summary" button used to sit here with nothing
+            behind it. A summary of everything has nothing to filter. */}
       </div>
 
       <div className="dash-summary-body">
         <div className="dash-ring">
-          <svg viewBox="0 0 128 128" role="img" aria-label="Project completion: 71 percent overall">
+          <svg viewBox="0 0 128 128" role="img" aria-label={`${percent} per cent of your documents are marked done`}>
             <circle className="dash-ring-track" cx="64" cy="64" r="47" fill="none" strokeWidth="12" />
-            <circle className="dash-ring-fill" cx="64" cy="64" r="47" fill="none" strokeWidth="12" strokeLinecap="round" strokeDasharray="295" strokeDashoffset="85.5" />
+            <circle
+              className="dash-ring-fill"
+              cx="64" cy="64" r="47" fill="none" strokeWidth="12" strokeLinecap="round"
+              strokeDasharray={CIRCUMFERENCE}
+              strokeDashoffset={CIRCUMFERENCE - (CIRCUMFERENCE * percent) / 100}
+            />
           </svg>
           <div className="dash-ring-centre">
-            <span className="dash-ring-value dash-serif">71%</span>
-            <span className="dash-ring-label">overall</span>
+            <span className="dash-ring-value dash-serif">{percent}%</span>
+            {/* One short word. "no documents" was two words too many for a
+                circle this size — the line under the ring already says what
+                an empty dashboard means. */}
+            <span className="dash-ring-label">done</span>
           </div>
         </div>
 
         <div className="dash-legend">
-          <div className="dash-legend-row"><span className="dash-swatch dash-swatch-done" />Project done<strong>08</strong></div>
-          <div className="dash-legend-row"><span className="dash-swatch dash-swatch-progress" />In progress<strong>05</strong></div>
-          <div className="dash-legend-row"><span className="dash-swatch dash-swatch-backlog" />Backlog<strong>02</strong></div>
+          <div className="dash-legend-row"><span className="dash-swatch dash-swatch-done" />Finished<strong>{pad(done)}</strong></div>
+          <div className="dash-legend-row"><span className="dash-swatch dash-swatch-progress" />In progress<strong>{pad(inProgress)}</strong></div>
+          <div className="dash-legend-row"><span className="dash-swatch dash-swatch-backlog" />Not started<strong>{pad(notStarted)}</strong></div>
         </div>
       </div>
 
-      <p className="dash-summary-foot"><Lightbulb size={13} /> A steady 18% ahead of last month</p>
+      <p className="dash-summary-foot">
+        <Lightbulb size={13} />
+        {total === 0
+          ? 'Create a document and this fills in on its own.'
+          : `${words.toLocaleString()} ${words === 1 ? 'word' : 'words'} across ${total} ${total === 1 ? 'document' : 'documents'}`}
+      </p>
     </section>
   );
 }
@@ -137,8 +195,10 @@ function DocumentRow({ doc, selected, onSelect, onOpen }) {
           <p className="dash-row-meta">Edited {doc.edited} · {pageLabel(doc.pages)}</p>
         </div>
       </div>
+      {/* The "In progress" / "Not started" pill used to sit here. It repeated
+          what the line already shows and crowded every row; the ring above
+          still counts the same three stages in one place. */}
       <div className="dash-row-side">
-        <span className={`dash-status ${statusClass[doc.status]}`}>{doc.status}</span>
         <button
           type="button"
           onClick={(event) => { event.stopPropagation(); onOpen(); }}
@@ -157,14 +217,17 @@ function DocumentRow({ doc, selected, onSelect, onOpen }) {
    ========================================================================== */
 function Dashboard() {
   const { darkMode, toggleDarkMode } = useTheme();
-  const { firstName } = useAuth(); // the real name from the account (S5)
+  const { firstName, isSignedIn } = useAuth(); // the real name from the account (S5)
+  // How many documents are still waiting to be described to the server.
+  const pending = useLiveQuery(pendingCount, [], 0);
 
   // Workspace Chrome shell states
   const [activeNav, setActiveNav] = useState('Dashboard');
-  const [privacyMode, setPrivacyMode] = useState(true);
+  // Kept in the browser's settings store, so the choice survives a reload
+  // and is the same on every page.
+  const [privacyMode, setPrivacyMode] = usePreference('privacyMode');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebar, setMobileSidebar] = useState(false);
-  const [search, setSearch] = useState('');
   // Live list from IndexedDB, newest first.
   const storedDocuments = useLiveQuery(listDocuments, []);
   const loading = storedDocuments === undefined;
@@ -173,6 +236,7 @@ function Dashboard() {
   const [modal, setModal] = useState(null);
   const [draftValue] = useState('');
   const [showAll, setShowAll] = useState(false);
+  const [stageFilter, setStageFilter] = useState('All');
   const [storageReport, setStorageReport] = useState(null);
 
   // Real browser storage use for the Storage tile; re-measured when the document list changes.
@@ -192,12 +256,13 @@ function Dashboard() {
   }, [toast]);
 
   const filteredDocuments = useMemo(() => {
-    const normalized = search.trim().toLowerCase();
-    const matching = normalized
-      ? documents.filter((doc) => `${doc.title} ${doc.type} ${doc.status}`.toLowerCase().includes(normalized))
-      : documents;
+    // Searching lives on My documents now. Here the only narrowing is the
+    // Filter button's stage.
+    const matching = stageFilter === 'All'
+      ? documents
+      : documents.filter((doc) => doc.status === stageFilter);
     return showAll ? matching : matching.slice(0, 4);
-  }, [documents, search, showAll]);
+  }, [documents, showAll, stageFilter]);
 
   const announce = (message) => setToast(message);
 
@@ -250,7 +315,10 @@ function Dashboard() {
       navigate(`/editor?doc=${doc.id}`);
     } catch (error) {
       console.error(error);
-      announce('The document could not be saved. Check that your browser allows site storage, then try again.');
+      // A plan limit is a decision, not a failure — say which one it was.
+      announce(error?.code === 'plan_limit'
+          ? error.message
+          : 'The document could not be saved. Check that your browser allows site storage, then try again.');
     }
   };
 
@@ -280,7 +348,7 @@ function Dashboard() {
   };
 
   return (
-    <div className={`dash-shell ${darkMode ? 'dash-dark' : ''}`}>
+    <div className={`dash-shell ${darkMode ? 'dash-dark' : ''} ${privacyMode ? 'dash-private' : ''}`}>
       <MobileTopbar
         onMenu={() => setMobileSidebar(true)}
         onThemeToggle={toggleDarkMode}
@@ -292,8 +360,8 @@ function Dashboard() {
         onNavigate={selectNav}
         privacyMode={privacyMode}
         onPrivacyToggle={() => {
-          setPrivacyMode((prev) => !prev);
-          announce(`Privacy mode ${privacyMode ? 'paused' : 'enabled'}`);
+          setPrivacyMode(!privacyMode);
+          announce(privacyMode ? 'Titles are visible again' : 'Titles are hidden until you point at them');
         }}
         darkMode={darkMode}
         onThemeToggle={toggleDarkMode}
@@ -307,25 +375,36 @@ function Dashboard() {
         onClose={() => setMobileSidebar(false)}
         activeNav={activeNav}
         onNavigate={selectNav}
-        onPrivacyToggle={() => setPrivacyMode((prev) => !prev)}
+        onPrivacyToggle={() => setPrivacyMode(!privacyMode)}
         onLogout={() => setModal('logout')}
       />
 
       <main className={`dash-main ${sidebarCollapsed ? 'is-wide' : ''}`}>
-        <WorkspaceHeader search={search} onSearchChange={setSearch} onAnnounce={announce} />
+        <WorkspaceHeader onAnnounce={announce} />
 
         <div className="dash-body">
           {/* Greeting */}
           <div className="dash-greeting dash-rise dash-d1">
             <div>
-              <p className="dash-date">Tuesday, September 1, 2026</p>
+              <p className="dash-date">{todayLabel()}</p>
               <h1 className="dash-title dash-serif">Hello, {firstName || 'there'}<em>.</em></h1>
-              <p className="dash-subtitle">Welcome back. Your ideas are safe here — ready when you are.</p>
+              <p className="dash-subtitle">Welcome back. Your ideas are safe here, ready when you are.</p>
             </div>
-            <div className="dash-privacy-pill">
-              <LockKeyhole size={13} className={privacyMode ? 'dash-privacy-on' : 'dash-privacy-off'} />
-              {privacyMode ? 'Privacy mode is on' : 'Privacy mode is paused'}
-            </div>
+            {/* Privacy mode used to be a word with nothing behind it. It now
+                blurs the titles in the list, for reading in a library or on a
+                train; moving the pointer over a line shows that one. */}
+            <button
+              type="button"
+              className="dash-privacy-pill"
+              onClick={() => setPrivacyMode(!privacyMode)}
+              aria-pressed={privacyMode}
+              title={privacyMode ? 'Show document titles' : 'Hide document titles from anyone looking over your shoulder'}
+            >
+              {privacyMode
+                ? <LockKeyhole size={13} className="dash-privacy-on" />
+                : <UnlockKeyhole size={13} className="dash-privacy-off" />}
+              {privacyMode ? 'Titles hidden' : 'Titles visible'}
+            </button>
           </div>
 
           {/* Quick actions + completion donut */}
@@ -336,9 +415,7 @@ function Dashboard() {
                   <p className="dash-eyebrow">Your desk</p>
                   <h2 className="dash-card-title dash-serif">Make something good.</h2>
                 </div>
-                <button type="button" onClick={() => announce('Quick actions are ready')} className="dash-ghost-btn" aria-label="More quick actions">
-                  <MoreHorizontal size={17} />
-                </button>
+                {/* "More quick actions" is gone: all four are already here. */}
               </div>
 
               <div className="dash-quick-row">
@@ -348,16 +425,31 @@ function Dashboard() {
                     the fast path and is handled here. */}
                 <QuickAction icon={Upload} title="Upload / drop" description="Bring in a document" tone="green" onClick={() => navigate('/upload')} onDrop={handleDrop} />
                 <QuickAction icon={FolderPlus} title="Create folder" description="Keep thoughts together" tone="plum" onClick={openNewFolder} />
-                <QuickAction icon={Pencil} title="Edit document" description="Continue where you left off" tone="coral" onClick={() => openEditDocument()} />
+                <QuickAction icon={Pencil} title="Edit document" description="Continue where you left" tone="coral" onClick={() => openEditDocument()} />
               </div>
 
+              {/* Both halves used to be invented ("Synced just now", "2.4 GB
+                  of 10 GB"). They now say what is actually true of this
+                  browser and this account. */}
               <div className="dash-desk-foot">
-                <span><Cloud size={14} /> Synced just now</span>
-                <span>2.4 GB of 10 GB used</span>
+                <span>
+                  {isSignedIn ? <Cloud size={14} /> : <CloudOff size={14} />}
+                  {' '}
+                  {!isSignedIn
+                    ? 'Saved on this device'
+                    : pending > 0
+                      ? 'Updating your list…'
+                      : 'List saved to your account'}
+                </span>
+                <span>
+                  {storageReport?.quota
+                    ? `${formatBytes(storageReport.usage)} of ${formatBytes(storageReport.quota)} used`
+                    : 'Measuring storage…'}
+                </span>
               </div>
             </section>
 
-            <div className="dash-rise dash-d3"><ProjectSummary /></div>
+            <div className="dash-rise dash-d3"><ProjectSummary documents={documents} /></div>
           </div>
 
           {/* Recent uploads */}
@@ -371,8 +463,15 @@ function Dashboard() {
                 <p className="dash-uploads-sub">The pages you touched most recently.</p>
               </div>
               <div className="dash-uploads-tools">
-                <button type="button" onClick={() => announce('Filters are available from search')} className="dash-tool-btn">
-                  <ListFilter size={14} /> Filter
+                {/* This button used to answer "filters are available from
+                    search", which was a polite way of doing nothing. It now
+                    steps through the three stages. */}
+                <button
+                  type="button"
+                  onClick={() => setStageFilter((current) => STAGES[(STAGES.indexOf(current) + 1) % STAGES.length])}
+                  className={`dash-tool-btn ${stageFilter !== 'All' ? 'dash-tool-accent' : ''}`}
+                >
+                  <ListFilter size={14} /> {stageFilter === 'All' ? 'Filter' : stageFilter}
                 </button>
                 <button type="button" onClick={() => setShowAll((current) => !current)} className="dash-tool-btn dash-tool-accent">
                   {showAll ? 'Show less' : 'View all'}
@@ -401,9 +500,11 @@ function Dashboard() {
               </div>
             ) : (
               <div className="dash-empty">
-                <Search size={22} />
-                <p>No pages match "{search}"</p>
-                <button type="button" onClick={() => setSearch('')}>Clear search</button>
+                <ListFilter size={22} />
+                <p>Nothing is marked &quot;{stageFilter}&quot; yet</p>
+                <button type="button" onClick={() => setStageFilter('All')}>
+                  Show everything
+                </button>
               </div>
             )}
           </section>

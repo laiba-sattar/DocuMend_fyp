@@ -10,7 +10,7 @@
 ================================================================================
 */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 // Lucide React Icons: UI elements, badges, navigation, and features
 import {
@@ -18,13 +18,9 @@ import {
   ArrowRight,
   Check,
   CheckCircle2,
-  FileText,
   LockKeyhole,
-  Minus,
-  Quote,
-  ShieldCheck,
+  Clock,
   Sparkles,
-  UsersRound,
   Zap,
 } from "lucide-react";
 
@@ -44,70 +40,11 @@ import { useTheme } from '../components/ThemeContext';
 import { navigate, usePathname } from '../router';
 
 // Custom CSS for pricing tier cards, illustrations, and dark mode overrides
-import "./pricing.css";
+import { useAuth } from '../components/AuthContext';
+import { PLANS, limitsFor, meetsTier } from '../plans/plans';
+import { documentAllowance } from '../plans/limits';
 
-/* ==========================================================================
-   1. PRICING PLANS DATA CONFIGURATION
-   ========================================================================== */
-const plans = [
-  {
-    id: "starter",
-    name: "Starter",
-    eyebrow: "For finding your rhythm",
-    description: "The essentials for cleaner essays, notes, and one very tidy workspace.",
-    price: { monthly: 0, annual: 0 },
-    suffix: "forever",
-    cta: "Start writing",
-    icon: FileText,
-    tone: "light",
-    features: [
-      "3 active documents",
-      "Local document history",
-      "Structure & formatting repair",
-      "Basic citation cleanup",
-      "Export to PDF and DOCX",
-    ],
-  },
-  {
-    id: "pro",
-    name: "Pro",
-    eyebrow: "For work worth polishing",
-    description: "A quiet second brain for long-form research, citations, and the final 10%.",
-    price: { monthly: 14, annual: 10 },
-    suffix: "per month",
-    cta: "Choose Pro",
-    icon: Sparkles,
-    tone: "featured",
-    recommended: true,
-    features: [
-      "Unlimited active documents",
-      "Full version history",
-      "Intelligent citation repair",
-      "Style guide presets",
-      "Batch document cleanup",
-      "Priority local model updates",
-    ],
-  },
-  {
-    id: "enterprise",
-    name: "Enterprise",
-    eyebrow: "For careful teams",
-    description: "A private document room for legal, academic, and research teams with standards.",
-    price: { monthly: null, annual: null },
-    suffix: "tailored to you",
-    cta: "Talk to our team",
-    icon: ShieldCheck,
-    tone: "dark",
-    features: [
-      "Everything in Pro",
-      "Private model deployment",
-      "Team style libraries",
-      "Admin and audit controls",
-      "SAML SSO and SCIM",
-      "Named privacy architect",
-    ],
-  },
-];
+import "./pricing.css";
 
 /* ==========================================================================
    2. SUB-COMPONENTS
@@ -161,7 +98,12 @@ function PlanIcon({ icon: Icon }) {
   );
 }
 
-function PlanCard({ plan, isAnnual, onChoose }) {
+/**
+ * One plan. `yours` marks the plan the signed-in account is actually on, which
+ * is the single most useful thing a pricing page can tell someone who already
+ * has an account — and the thing this page never used to say.
+ */
+function PlanCard({ plan, isAnnual, yours, signedIn, onChoose }) {
   const Icon = plan.icon;
   const displayPrice = isAnnual ? plan.price.annual : plan.price.monthly;
   const savings =
@@ -170,11 +112,16 @@ function PlanCard({ plan, isAnnual, onChoose }) {
       : 0;
 
   return (
-    <article className={`pricing-plan pricing-plan-${plan.tone}`}>
-      {plan.recommended && (
+    <article className={`pricing-plan pricing-plan-${plan.tone} ${yours ? 'is-yours' : ''}`}>
+      {yours ? (
+        <div className="pricing-recommended pricing-yours">
+          <CheckCircle2 size={13} />
+          Your plan
+        </div>
+      ) : plan.recommended && (
         <div className="pricing-recommended">
           <Sparkles size={13} />
-          Most loved by researchers
+          Most room for a long document
         </div>
       )}
 
@@ -213,18 +160,37 @@ function PlanCard({ plan, isAnnual, onChoose }) {
         <span>Includes</span>
         <Icon size={14} />
       </div>
+      {/* A line that is not built yet is shown greyed and labelled, never as
+          though it already worked. */}
       <ul className="pricing-feature-list">
         {plan.features.map((feature) => (
-          <li key={feature}>
-            <Check size={15} strokeWidth={2.6} />
-            <span>{feature}</span>
+          <li key={feature.label} className={feature.available ? '' : 'is-coming'}>
+            {feature.available
+              ? <Check size={15} strokeWidth={2.6} />
+              : <Clock size={15} strokeWidth={2.2} />}
+            <span>
+              {feature.label}
+              {!feature.available && <em className="pricing-coming-tag">not built yet</em>}
+            </span>
           </li>
         ))}
       </ul>
 
-      <button className="pricing-plan-button" type="button" onClick={() => onChoose(plan)}>
-        {plan.cta}
-        <ArrowRight size={16} />
+      <button
+        className="pricing-plan-button"
+        type="button"
+        disabled={yours}
+        onClick={() => onChoose(plan)}
+      >
+        {yours
+          ? 'This is your plan'
+          : plan.price.monthly === null
+            ? 'Talk to us'
+            : !signedIn && plan.id === 'BASIC'
+              // Nobody "moves to" the free plan from outside; they start on it.
+              ? 'Start free'
+              : `Move to ${plan.name}`}
+        {!yours && <ArrowRight size={16} />}
       </button>
     </article>
   );
@@ -246,13 +212,22 @@ export default function Pricing() {
   const [isAnnual, setIsAnnual] = useState(true);
   const [toast, setToast] = useState("");
 
+  // The plan this account is actually on, and how much of it is used up.
+  const { tier, isSignedIn } = useAuth();
+  const currentPlan = PLANS.find((plan) => plan.id === tier) ?? PLANS[0];
+  const [allowance, setAllowance] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    documentAllowance().then((report) => { if (alive) setAllowance(report); }).catch(() => {});
+    return () => { alive = false; };
+  }, [tier]);
+
   // Workspace Chrome Shell States
   const [activeNav, setActiveNav] = useState('Subscription');
   const [privacyMode, setPrivacyMode] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebar, setMobileSidebar] = useState(false);
   const [modal, setModal] = useState(null);
-  const [search, setSearch] = useState('');
 
   const notify = (message) => {
     setToast(message);
@@ -284,17 +259,23 @@ export default function Pricing() {
     navigate('/');
   };
 
+  /**
+   * There is no payment system in this build, so this button does not pretend
+   * to take money. Saying which plan, which price, and what is still missing is
+   * more use than a cheerful message that changes nothing.
+   */
   const handleChoose = (plan) => {
-    if (plan.id === "starter") {
-      notify("Starter is ready when you are. Your first document is waiting.");
-      navigate('/editor');
+    if (plan.id === 'BASIC') {
+      if (!isSignedIn) return navigate('/signup');
+      notify('Basic is the free plan. Nothing to pay, nothing to switch.');
       return;
     }
-    if (plan.id === "pro") {
-      notify(`Pro selected — ${isAnnual ? "$10/month, billed annually" : "$14/month"} looks good on you.`);
+    if (plan.price.monthly === null) {
+      notify('Enterprise is arranged by hand. There is no sign-up for it yet.');
       return;
     }
-    notify("Our team has been notified. We’ll bring the quiet, careful details.");
+    const price = isAnnual ? `$${plan.price.annual}/month billed annually` : `$${plan.price.monthly}/month`;
+    notify(`${plan.name} would be ${price}. Payments are not connected in this build, so plans cannot be changed here yet.`);
   };
 
   return (
@@ -330,11 +311,7 @@ export default function Pricing() {
       />
 
       <main className={`dash-main ${sidebarCollapsed ? 'is-wide' : ''}`}>
-        <WorkspaceHeader 
-          search={search} 
-          onSearchChange={setSearch} 
-          onAnnounce={notify} 
-        />
+        <WorkspaceHeader onAnnounce={notify} />
 
         <div className="pricing-shell">
           <div className="pricing-orb pricing-orb-one" aria-hidden="true" />
@@ -403,8 +380,8 @@ export default function Pricing() {
 
           {/* Pricing Cards Grid */}
           <section className="pricing-plans" aria-label="DocuMend plans">
-            {plans.map((plan) => (
-              <PlanCard key={plan.id} plan={plan} isAnnual={isAnnual} onChoose={handleChoose} />
+            {PLANS.map((plan) => (
+              <PlanCard key={plan.id} plan={plan} isAnnual={isAnnual} yours={isSignedIn && plan.id === tier} signedIn={isSignedIn} onChoose={handleChoose} />
             ))}
           </section>
 
@@ -418,33 +395,68 @@ export default function Pricing() {
               </div>
             </div>
             <div className="pricing-every-plan-items">
-              <span><CheckCircle2 size={15} /> Works offline</span>
-              <span><CheckCircle2 size={15} /> No training on your writing</span>
-              <span><CheckCircle2 size={15} /> Human-readable exports</span>
+              <span><CheckCircle2 size={15} /> The checks run on your own computer</span>
+              <span><CheckCircle2 size={15} /> Your writing is never used to train anything</span>
+              <span><CheckCircle2 size={15} /> Export to Word, PDF or plain text, any time</span>
             </div>
           </section>
 
           {/* Testimonial & Local-First Promise Grid */}
           <section className="pricing-lower-grid" aria-label="Why writers choose DocuMend">
+            {/* What used to be here: a quotation from "Nadia Chen, PhD
+                candidate", a claim of 12,400 users, and a 14-day free trial.
+                None of the three existed. A page asking for money is the last
+                place to invent evidence, so it now shows the one true thing
+                this reader might want — where they stand on their own plan. */}
             <article className="pricing-reassurance">
-              <span className="pricing-reassurance-label">A note from the careful corner</span>
-              <div className="pricing-quote-mark"><Quote size={19} /></div>
-              <blockquote>
-                “It feels less like an AI tool and more like the colleague who catches
-                the missing reference before your supervisor does.”
-              </blockquote>
-              <div className="pricing-quote-author">
-                <span className="pricing-avatar">NC</span>
-                <span><strong>Nadia Chen</strong><small>PhD candidate, computational law</small></span>
-              </div>
-              <div className="pricing-trust-bits">
-                <span><LockKeyhole size={14} /> Your files stay on your device</span>
-                <span><UsersRound size={14} /> Trusted by 12,400 careful writers</span>
-                <button type="button" onClick={() => notify("All plans come with a 14-day, no-pressure trial.")}>
-                  <Minus size={14} />
-                  14-day trial, no card
-                </button>
-              </div>
+              <span className="pricing-reassurance-label">Where you stand</span>
+              {isSignedIn ? (
+                <>
+                  <h2 className="pricing-usage-title">
+                    You are on the {currentPlan.name} plan.
+                  </h2>
+                  <p className="pricing-usage-line">
+                    {allowance
+                      ? allowance.allowed === Infinity
+                        ? `${allowance.used} ${allowance.used === 1 ? 'document' : 'documents'} in this browser, with no limit on your plan.`
+                        : `${allowance.used} of ${allowance.allowed} documents used.`
+                      : 'Counting your documents…'}
+                  </p>
+
+                  {allowance && allowance.allowed !== Infinity && (
+                    <div className="pricing-usage-meter">
+                      <span style={{ width: `${Math.min(100, (allowance.used / allowance.allowed) * 100)}%` }} />
+                    </div>
+                  )}
+
+                  <p className="pricing-usage-note">
+                    Version history on this plan keeps the last{' '}
+                    {limitsFor(tier).autoVersions} automatic saves of each document.
+                    Versions you save by hand are never removed.
+                  </p>
+
+                  <div className="pricing-trust-bits">
+                    <span><LockKeyhole size={14} /> Your documents stay in this browser</span>
+                    <button type="button" onClick={() => navigate('/settings')}>
+                      Manage your account <ArrowRight size={14} />
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h2 className="pricing-usage-title">Basic is free, and it is the whole editor.</h2>
+                  <p className="pricing-usage-line">
+                    Ten documents, every writing check, import and export, version history.
+                    No card, because there is nothing to pay.
+                  </p>
+                  <div className="pricing-trust-bits">
+                    <span><LockKeyhole size={14} /> Your documents stay in your browser</span>
+                    <button type="button" onClick={() => navigate('/signup')}>
+                      Create an account <ArrowRight size={14} />
+                    </button>
+                  </div>
+                </>
+              )}
             </article>
 
             <aside className="pricing-promise-card" aria-label="DocuMend privacy promise">
@@ -472,9 +484,10 @@ export default function Pricing() {
           {/* Page Footer */}
           <footer className="pricing-footer">
             <span><span className="pricing-footer-dot" /> DocuMend · A more considered way to write.</span>
-            <button type="button" onClick={() => notify("The full comparison is coming into focus.")}>
-              Compare all features <ArrowRight size={14} />
-            </button>
+            {/* Honest, and useful: it says why no plan can be bought yet. */}
+            <span className="pricing-footer-note">
+              Payments are not connected in this build, so plans cannot be changed here yet.
+            </span>
           </footer>
         </div>
       </main>

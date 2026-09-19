@@ -158,7 +158,15 @@ const isUnitWord = (word) => word.length >= 2 && /^[\p{L}]+$/u.test(word) && !NO
    Structure checks — the same rules as engine/src/structure.rs
    ------------------------------------------------------------------------- */
 
-const TEMPLATES = {
+/**
+ * The sections each kind of document usually has — the same list, in the same
+ * order, as THESIS/RESEARCH_PAPER/REPORT/LEGAL in engine/src/structure.rs.
+ *
+ * Exported because the Settings page shows these to the reader. Showing them
+ * from here rather than retyping them means the page can never drift away from
+ * what the engine actually looks for.
+ */
+export const TEMPLATES = {
   thesis: [
     ['Abstract', ['abstract', 'summary']],
     ['Introduction', ['introduction', 'overview']],

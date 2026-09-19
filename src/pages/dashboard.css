@@ -89,7 +89,18 @@
   background: rgba(248, 240, 223, .15);
 }
 .dash-quick-title { display: block; font-size: 12px; font-weight: 600; letter-spacing: -.01em; }
-.dash-quick-desc { display: block; margin-top: 4px; max-width: 122px; font-size: 9px; line-height: 1.35; opacity: .75; }
+/* The arrow sits in the bottom-right corner, so the description keeps a
+   lane clear of it. Before this, a description one word too long ran
+   underneath the arrow and the last word could not be read. */
+.dash-quick-desc {
+  display: block;
+  margin-top: 4px;
+  max-width: 122px;
+  padding-right: 34px;
+  font-size: 9px;
+  line-height: 1.35;
+  opacity: .75;
+}
 .dash-quick-go {
   position: absolute;
   right: 12px;
@@ -159,7 +170,20 @@
   justify-content: center;
 }
 .dash-ring-value { font-size: 29px; font-weight: 600; line-height: 1; letter-spacing: -.04em; color: var(--dash-ink); }
-.dash-ring-label { margin-top: 4px; font-size: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: .16em; color: var(--dash-ink-soft); }
+/* Kept to one line inside the circle, whatever the word. Wide letter
+   spacing plus a long word is what made this spill over its ring. */
+.dash-ring-label {
+  max-width: 82px;
+  margin-top: 4px;
+  overflow: hidden;
+  font-size: 8px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .16em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--dash-ink-soft);
+}
 
 .dash-legend { display: flex; flex-direction: column; gap: 12px; font-size: 10px; color: var(--dash-ink-soft); }
 .dash-legend-row { display: flex; align-items: center; gap: 10px; }
@@ -242,20 +266,7 @@
 .dash-row-meta { margin: 4px 0 0; font-size: 9px; color: var(--dash-ink-muted); }
 .dash-row-side { display: flex; align-items: center; gap: 12px; }
 
-.dash-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border-radius: 999px;
-  padding: 4px 10px;
-  font-size: 9px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.dash-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.dash-status-done { background: var(--dash-done-bg); color: var(--dash-done-ink); }
-.dash-status-progress { background: var(--dash-progress-bg); color: var(--dash-progress-ink); }
-.dash-status-backlog { background: var(--dash-backlog-bg); color: var(--dash-backlog-ink); }
+/* The per-row status pill was removed; the ring above counts the stages. */
 
 /* Revealed on row hover or keyboard focus. */
 .dash-row-open {
@@ -344,4 +355,41 @@
   font-size: 0.8rem;
   font-weight: 600;
   color: #c86f52;
+}
+
+/* ==========================================================================
+   Privacy mode
+
+   A real switch, not a label: while it is on, document titles are blurred so
+   that someone beside you in a library or on a train cannot read them.
+   Pointing at a line (or tabbing to it) reveals that one, which is enough to
+   work with and still keeps the rest of the screen private.
+   ========================================================================== */
+
+.dash-privacy-pill {
+  border: 1px solid var(--dash-line);
+  background: var(--dash-card);
+  font: inherit;
+  cursor: pointer;
+}
+.dash-privacy-pill:hover { border-color: var(--dash-sage); }
+
+.dash-private .dash-row-title,
+.dash-private .dash-row-meta {
+  filter: blur(4px);
+  transition: filter .12s ease;
+}
+
+.dash-private .dash-row:hover .dash-row-title,
+.dash-private .dash-row:hover .dash-row-meta,
+.dash-private .dash-row:focus-within .dash-row-title,
+.dash-private .dash-row:focus-within .dash-row-meta,
+.dash-private .dash-row.is-selected .dash-row-title,
+.dash-private .dash-row.is-selected .dash-row-meta {
+  filter: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-private .dash-row-title,
+  .dash-private .dash-row-meta { transition: none; }
 }

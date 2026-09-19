@@ -1444,3 +1444,60 @@
     transition-duration: 0.01ms !important;
   }
 }
+/* ==========================================================================
+   Real plans (section S5)
+
+   Three additions, all of them about telling the truth on a page that asks
+   for money: which plan is yours, which lines are not built yet, and where
+   your own usage stands.
+   ========================================================================== */
+
+/* The plan this account is actually on. */
+.pricing-plan.is-yours { outline: 2px solid var(--dash-sage, #6f9c85); outline-offset: 2px; }
+.pricing-yours { background: #e6f0e9; color: #234436; }
+
+/* A feature that is planned but not written yet. Greyed, and labelled — the
+   grey alone would just look like a styling accident. */
+.pricing-feature-list li.is-coming { opacity: .62; }
+.pricing-coming-tag {
+  margin-left: 6px;
+  border-radius: 999px;
+  padding: 1px 7px;
+  background: rgba(0, 0, 0, .06);
+  font-size: 9.5px;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.pricing-plan-dark .pricing-coming-tag { background: rgba(255, 255, 255, .14); }
+
+.pricing-plan-button:disabled { opacity: .55; cursor: default; }
+
+/* "Where you stand" — your own plan, counted. */
+.pricing-usage-title {
+  margin: 10px 0 8px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+}
+.pricing-usage-line { margin: 0; font-size: 13.5px; line-height: 1.55; }
+.pricing-usage-note { margin: 12px 0 0; font-size: 12px; line-height: 1.55; opacity: .72; }
+
+.pricing-usage-meter {
+  height: 7px;
+  margin-top: 14px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, .08);
+  overflow: hidden;
+}
+.pricing-usage-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--dash-sage, #6f9c85);
+  transition: width .25s ease;
+}
+
+.pricing-footer-note { font-size: 11.5px; opacity: .7; }

@@ -8,6 +8,7 @@
 import { db, newId } from './db';
 import { requestPersistentStorage } from './quota';
 import { queueDelete, queueUpsert } from '../sync/metadata';
+import { assertCanCreateDocument } from '../plans/limits';
 
 /** The Create document screen asks for a type; My documents filters by category. */
 const CATEGORY_BY_TYPE = {
@@ -21,6 +22,10 @@ const CATEGORY_BY_TYPE = {
 const TINTS = ['saffron', 'sage', 'coral', 'lavender', 'sky', 'gold'];
 
 export async function createDocument({ title, type = 'Other', folderId = 'root', checks = [] }) {
+  // The plan's document limit is real, and this is where it is real. Throws a
+  // message meant to be shown to the reader (see plans/limits.js).
+  await assertCanCreateDocument();
+
   const now = Date.now();
   const doc = {
     id: newId(),

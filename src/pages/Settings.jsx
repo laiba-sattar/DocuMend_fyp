@@ -1,4 +1,23 @@
-import { useMemo, useState } from 'react';
+/**
+ * Settings — the account, the templates, and the checks. At `/settings`.
+ *
+ * This page used to be a showroom. It greeted "Mahnoor Aslam", offered a
+ * password field full of bullets that saved nowhere, listed four invented
+ * document blueprints ("IEEE Conference Manuscript", "Corporate Mutual NDA")
+ * that the engine had never heard of, and switched on "Zero-Knowledge Disk
+ * Encryption" that does not exist in this build. Every control has been
+ * replaced by one that does what it says.
+ *
+ * Three tabs, three real subjects:
+ *
+ *   Account    the signed-in user, their plan, their password, their sessions,
+ *              and the two ways to leave (clear this device, close the account)
+ *   Templates  the document types the engine actually checks against, straight
+ *              out of engine/src/structure.rs, and which one new documents start as
+ *   Checks     the eight rules the engine runs, each one switchable, plus the
+ *              browser storage this device is really using
+ */
+import { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
@@ -6,198 +25,175 @@ import {
   CheckCircle2,
   Cpu,
   Database,
-  Eye,
   FileCheck,
-  History,
+  KeyRound,
   Layers,
-  Lock,
-  Pencil,
-  Plus,
-  RefreshCw,
+  LogOut,
   Save,
-  ShieldAlert,
   ShieldCheck,
   Sliders,
   Sparkles,
   Trash2,
   User,
-  Zap,
 } from 'lucide-react';
 import {
   MobileDrawer,
   MobileTopbar,
   Sidebar,
+  WorkspaceHeader,
   WorkspaceModal,
 } from '../components/WorkspaceChrome';
 import { workspaceRoutes } from '../components/workspace-nav';
 import { useTheme } from '../components/ThemeContext';
+import { useAuth } from '../components/AuthContext';
 import { navigate } from '../router';
+import { TEMPLATES } from '../engine/fallback';
+import { CHECKS, KIND_LABELS } from '../engine/checks';
+import { usePreference } from '../settings/preferences';
+import { formatBytes, formatPercent, getStorageReport, wipeAllData } from '../storage/quota';
 import './settings.css';
 
-const blueprintsData = [
-  {
-    id: 'ucp_fyp',
-    title: 'UCP Final Year Project Report',
-    subtitle: 'Standard FYP Phase-1 & Phase-2 template',
-    badge: 'Academic',
-    tags: ['H1–H4 Hierarchy', 'APA 7th Edition', '12 Chapters', 'WASM Strict'],
-    stats: { pages: '40–70 pages', citations: 'Mandatory DOI', validation: 'Instant AST' },
-    specs: {
-      title: 'UCP Computer Science Capstone Blueprint',
-      structure: [
-        { id: '1', title: '1. Introduction', parts: ['1.1 Problem Statement', '1.2 Proposed Objectives', '1.3 Scope & Limitations'] },
-        { id: '2', title: '2. Literature Review', warning: 'APA Citation Verification Active' },
-        { id: '3', title: '3. System Architecture & Methodology', parts: ['3.1 Modular Decomposition', '3.2 Sequence & Data Flow'] },
-        { id: '4', title: '4. Implementation & Edge Engine Specs' },
-        { id: '5', title: '5. Empirical Testing & Evaluation' },
-        { id: '6', title: '6. Conclusion & Future Directions' },
-      ],
-      remaining: 6,
-    },
-  },
-  {
-    id: 'ieee_conf',
-    title: 'IEEE Conference Manuscript',
-    subtitle: 'Double-column peer-reviewed schema',
-    badge: 'Publication',
-    tags: ['2-Column Grid', 'Numeric Citations', 'Max 6,000 words'],
-    stats: { pages: '6–8 pages', citations: 'IEEE Numeric', validation: 'Strict Layout' },
-    specs: {
-      title: 'IEEE Two-Column Conference Standard',
-      structure: [
-        { id: 'I', title: 'I. Abstract & Index Terms' },
-        { id: 'II', title: 'II. Introduction & Theoretical Framing' },
-        { id: 'III', title: 'III. Proposed Algorithmic Pipeline', parts: ['Mathematical Bounds', 'Complexity Analysis'] },
-        { id: 'IV', title: 'IV. Experimental Benchmark', warning: 'Double-blind Author Scrub Active' },
-        { id: 'V', title: 'V. Conclusion' },
-      ],
-      remaining: 0,
-    },
-  },
-  {
-    id: 'legal_nda',
-    title: 'Corporate Mutual NDA & IP Agreement',
-    subtitle: 'Strict legal clause hierarchy and audit tags',
-    badge: 'Legal',
-    tags: ['Clauses & Covenants', 'Enforceability Tags', 'Signature Block'],
-    stats: { pages: '3–5 pages', citations: 'Jurisdiction Ref', validation: 'Clause Check' },
-    specs: {
-      title: 'Mutual Non-Disclosure & IP Covenant',
-      structure: [
-        { id: '1', title: '1. Definitions & Confidential Data Scope' },
-        { id: '2', title: '2. Permitted Use & Non-Disclosure Obligations', warning: 'Exclusion Clauses Monitored' },
-        { id: '3', title: '3. Term, Return of Materials, & Remedies' },
-        { id: '4', title: '4. Governing Law & Dispute Forum' },
-      ],
-      remaining: 2,
-    },
-  },
-  {
-    id: 'custom_free',
-    title: 'Free-flow Research Manuscript',
-    subtitle: 'Unconstrained canvas with active heuristics',
-    badge: 'Flexible',
-    tags: ['Free-form Prose', 'Continuous Contradiction Check', 'Edge AST'],
-    stats: { pages: 'Unlimited', citations: 'Dynamic', validation: 'Realtime' },
-    specs: {
-      title: 'Unstructured Dynamic Workspace',
-      structure: [
-        { id: 'A', title: 'Custom Markdown & Document Trees' },
-        { id: 'B', title: 'Background WebAssembly Semantic Checks' },
-      ],
-      remaining: 0,
-    },
-  },
+/* ==========================================================================
+   Document types — the engine's own list, not a made-up one
+   ========================================================================== */
+
+/**
+ * The kinds "Create document" offers. The first four have a template in the
+ * engine; "Other" deliberately has none, so no section is ever called missing
+ * in a document that was never meant to have chapters.
+ */
+const KINDS = [
+  { name: 'Thesis', key: 'thesis', blurb: 'A long academic document with chapters, from Abstract to References.' },
+  { name: 'Research paper', key: 'research paper', blurb: 'A conference or journal paper: shorter, same bones as a thesis.' },
+  { name: 'Report', key: 'report', blurb: 'A working document that ends in findings and what to do about them.' },
+  { name: 'Legal', key: 'legal', blurb: 'An agreement: who, what they must do, and which court decides.' },
+  { name: 'Other', key: 'other', blurb: 'No template. Wording and repetition are still checked; sections are not.' },
 ];
+
+const sectionsFor = (key) => TEMPLATES[key] ?? [];
+
+/* ==========================================================================
+   The page
+   ========================================================================== */
 
 export default function Settings() {
   const [activeTab, setActiveTab] = useState('account');
   const [toast, setToast] = useState('');
-  
-  // Consume shared global theme context
+
   const { darkMode, toggleDarkMode } = useTheme();
+  const { user, tier, hasPassword, updateProfile, signOutEverywhere, deleteAccount } = useAuth();
 
   // WorkspaceChrome shell states
   const [activeNav, setActiveNav] = useState('Settings');
-  const [privacyMode, setPrivacyMode] = useState(true);
+  const [privacyMode, setPrivacyMode] = usePreference('privacyMode');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebar, setMobileSidebar] = useState(false);
   const [modal, setModal] = useState(null);
 
-  // Profile Form States
-  const [profile, setProfile] = useState({
-    firstName: 'Mahnoor',
-    lastName: 'Aslam',
-    email: 'mahnooraslam@gmail.com',
-    password: '•••••••••••••••••',
-    lastLogin: 'Today, 10:42 AM',
-  });
-  const [isEditingPassword, setIsEditingPassword] = useState(false);
+  // --- the account form -----------------------------------------------------
+  const [name, setName] = useState('');
+  const [savingName, setSavingName] = useState(false);
+  useEffect(() => { setName(user?.name ?? ''); }, [user?.name]);
+  const nameChanged = name.trim() !== (user?.name ?? '').trim() && name.trim().length >= 2;
 
-  // Template State
-  const [selectedBpId, setSelectedBpId] = useState('ucp_fyp');
-  const activeBlueprint = useMemo(
-    () => blueprintsData.find((b) => b.id === selectedBpId) || blueprintsData[0],
-    [selectedBpId]
+  // --- templates and checks -------------------------------------------------
+  const [defaultKind, setDefaultKind] = usePreference('defaultKind');
+  const [mutedChecks, setMutedChecks] = usePreference('mutedChecks');
+  const activeKind = useMemo(
+    () => KINDS.find((entry) => entry.name === defaultKind) ?? KINDS[0],
+    [defaultKind],
   );
 
-  // Diagnostics & Rules State
-  const [rules, setRules] = useState({
-    contradictionParsing: true,
-    gapAnalysisContext: true,
-    selfHealingRemediation: false,
-    zeroKnowledgeDiskEncryption: true,
-  });
+  // --- real browser storage -------------------------------------------------
+  const [storage, setStorage] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    getStorageReport().then((report) => { if (alive) setStorage(report); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
-  const notify = (msg) => {
-    setToast(msg);
-    window.setTimeout(() => setToast(''), 2600);
+  const notify = (message) => {
+    setToast(message);
+    window.setTimeout(() => setToast(''), 3200);
   };
 
-  const handleToggleRule = (key, label) => {
-    setRules((prev) => {
-      const next = !prev[key];
-      notify(`${label}: ${next ? 'Enabled' : 'Disabled'}`);
-      return { ...prev, [key]: next };
-    });
+  const saveName = async (event) => {
+    event.preventDefault();
+    if (!nameChanged || savingName) return;
+    setSavingName(true);
+    try {
+      await updateProfile({ name: name.trim() });
+      notify('Your name is saved.');
+    } catch (error) {
+      notify(error?.message ?? 'That could not be saved.');
+    } finally {
+      setSavingName(false);
+    }
+  };
+
+  const endEverySession = async () => {
+    if (!window.confirm('Sign out of DocuMend on every device, including this one?')) return;
+    try {
+      await signOutEverywhere();
+      navigate('/login');
+    } catch (error) {
+      notify(error?.message ?? 'That did not work.');
+    }
+  };
+
+  /**
+   * Closing the account. The local documents are cleared first, on purpose:
+   * the server cannot reach them, so if the order were the other way round a
+   * failed request would leave a browser full of documents with no account.
+   */
+  const closeAccount = async () => {
+    const typed = window.prompt('This erases your account and every document in this browser. It cannot be undone.\n\nType DELETE to confirm.');
+    if (typed !== 'DELETE') return;
+    try {
+      await wipeAllData();
+      await deleteAccount();
+      navigate('/');
+    } catch (error) {
+      notify(error?.message ?? 'The account could not be closed.');
+    }
+  };
+
+  const clearThisDevice = async () => {
+    if (!window.confirm('Erase every document stored in this browser? Your account stays, but the text is gone for good.')) return;
+    await wipeAllData();
+    notify('This browser no longer holds any documents.');
+  };
+
+  const toggleCheck = (check) => {
+    const muted = mutedChecks.includes(check.id)
+      ? mutedChecks.filter((id) => id !== check.id)
+      : [...mutedChecks, check.id];
+    setMutedChecks(muted);
+    notify(muted.includes(check.id)
+      ? `The editor will stop flagging "${check.title}".`
+      : `"${check.title}" is back on.`);
   };
 
   const selectNav = (label) => {
     const route = workspaceRoutes?.[label];
-    if (route && label !== 'Settings') {
-      navigate(route);
-      return;
-    }
+    if (route && label !== 'Settings') return navigate(route);
     if (label === 'Dashboard') return navigate('/dashboard');
-    if (label === 'Editor') return navigate('/editor');
-    if (label === 'Subscription' || label === 'Pricing') return navigate('/pricing');
-    if (label === 'Version history') return navigate('/version');
-    if (label === 'Features') return navigate('/features');
-    if (label === 'Help and Guide') return navigate('/help');
-    if (label === 'Storage') return navigate('/storage');
-    if (label === 'Share Document') return navigate('/share');
-
     setActiveNav(label);
-    if (label !== 'Settings') notify(`${label} view selected`);
     setMobileSidebar(false);
   };
 
+  const initials = (user?.name ?? 'You')
+    .split(/\s+/).slice(0, 2).map((part) => part[0] ?? '').join('').toUpperCase();
+
   return (
-    <div className={`dash-shell ${darkMode ? 'dash-dark' : ''}`}>
-      <MobileTopbar
-        onMenu={() => setMobileSidebar(true)}
-        onThemeToggle={toggleDarkMode}
-        darkMode={darkMode}
-      />
+    <div className={`dash-shell ${darkMode ? 'dash-dark' : ''} ${privacyMode ? 'dash-private' : ''}`}>
+      <MobileTopbar onMenu={() => setMobileSidebar(true)} onThemeToggle={toggleDarkMode} darkMode={darkMode} />
 
       <Sidebar
         activeNav={activeNav}
         onNavigate={selectNav}
         privacyMode={privacyMode}
-        onPrivacyToggle={() => {
-          setPrivacyMode((prev) => !prev);
-          notify(`Privacy mode ${privacyMode ? 'paused' : 'enabled'}`);
-        }}
+        onPrivacyToggle={() => setPrivacyMode(!privacyMode)}
         darkMode={darkMode}
         onThemeToggle={toggleDarkMode}
         onLogout={() => setModal('logout')}
@@ -210,176 +206,106 @@ export default function Settings() {
         onClose={() => setMobileSidebar(false)}
         activeNav={activeNav}
         onNavigate={selectNav}
-        onPrivacyToggle={() => setPrivacyMode((prev) => !prev)}
+        onPrivacyToggle={() => setPrivacyMode(!privacyMode)}
         onLogout={() => setModal('logout')}
       />
 
       <main className={`dash-main set-v2-main ${sidebarCollapsed ? 'is-wide' : ''}`}>
-        <div className="set-v2-ambient-glow set-v2-glow-1" aria-hidden="true" />
-        <div className="set-v2-ambient-glow set-v2-glow-2" aria-hidden="true" />
+        <WorkspaceHeader onAnnounce={notify} />
 
         <div className="set-v2-wrapper">
-          {/* Header Bar */}
           <header className="set-v2-hero">
             <div className="set-v2-hero-copy">
               <div className="set-v2-pill-tag">
                 <Sliders size={13} className="set-v2-tag-icon" />
-                <span>DocuMend Environment Control</span>
+                <span>Settings</span>
               </div>
-              <h1>Settings & System Preferences</h1>
+              <h2>Your account, and how DocuMend reads for you.</h2>
               <p>
-                Configure local AST execution rules, authorship credentials, and document structure templates.
+                Everything on this page is real: the account lives on the server, the
+                templates are the ones the engine checks against, and the switches
+                change what the editor tells you.
               </p>
-            </div>
-
-            <div className="set-v2-quick-action">
-              <button
-                type="button"
-                className="set-v2-primary-btn"
-                onClick={() => navigate('/CreateDocument')}
-              >
-                <Plus size={16} strokeWidth={2.6} />
-                <span>New Document</span>
-              </button>
             </div>
           </header>
 
-          {/* Navigation Tab Bar */}
           <div className="set-v2-tabs-dock" role="tablist">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === 'account'}
-              className={`set-v2-tab-item ${activeTab === 'account' ? 'is-active' : ''}`}
-              onClick={() => setActiveTab('account')}
-            >
-              <User size={15} />
-              <span>Account & Security</span>
-            </button>
-
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === 'templates'}
-              className={`set-v2-tab-item ${activeTab === 'templates' ? 'is-active' : ''}`}
-              onClick={() => setActiveTab('templates')}
-            >
-              <Layers size={15} />
-              <span>Document Blueprints</span>
-            </button>
-
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeTab === 'diagnostics'}
-              className={`set-v2-tab-item ${activeTab === 'diagnostics' ? 'is-active' : ''}`}
-              onClick={() => setActiveTab('diagnostics')}
-            >
-              <Cpu size={15} />
-              <span>Diagnostics & WASM Rules</span>
-            </button>
+            {[
+              { id: 'account', icon: User, label: 'Account' },
+              { id: 'templates', icon: Layers, label: 'Document types' },
+              { id: 'checks', icon: Cpu, label: 'Checks & storage' },
+            ].map(({ id, icon: Icon, label }) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === id}
+                className={`set-v2-tab-item ${activeTab === id ? 'is-active' : ''}`}
+                onClick={() => setActiveTab(id)}
+              >
+                <Icon size={15} />
+                <span>{label}</span>
+              </button>
+            ))}
           </div>
 
-          {/* TAB 1: ACCOUNT & SECURITY */}
+          {/* ================================================== TAB 1: ACCOUNT */}
           {activeTab === 'account' && (
             <div className="set-v2-panel set-v2-fade-in">
               <div className="set-v2-card-glass">
                 <div className="set-v2-profile-card">
                   <div className="set-v2-avatar-badge">
-                    <span>MA</span>
-                    <div className="set-v2-avatar-status" title="Local Identity Online" />
+                    <span>{initials || 'YOU'}</span>
+                    <div className="set-v2-avatar-status" title="Signed in" />
                   </div>
                   <div className="set-v2-profile-info">
                     <div className="set-v2-profile-title">
-                      <h3>{profile.firstName} {profile.lastName}</h3>
+                      <h3>{user?.name ?? 'Your account'}</h3>
                       <span className="set-v2-badge-verified">
-                        <CheckCircle2 size={12} /> Local-first Account
+                        <CheckCircle2 size={12} /> {tier.charAt(0) + tier.slice(1).toLowerCase()} plan
                       </span>
                     </div>
-                    <p>DocuMend Edge Workspace · University of Central Punjab</p>
                     <div className="set-v2-avatar-actions">
-                      <button type="button" onClick={() => notify('Photo uploaded')}>Upload Photo</button>
-                      <span className="set-v2-dot-divider" />
-                      <button type="button" className="set-v2-btn-dim" onClick={() => notify('Photo reset')}>Remove</button>
-                      <span className="set-v2-avatar-limits">PNG, JPEG, WebP under 5MB</span>
+                      <span className="set-v2-avatar-limits">
+                        {user?.createdAt
+                          ? `With DocuMend since ${new Date(user.createdAt).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}`
+                          : 'Signed in on this device'}
+                      </span>
                     </div>
                   </div>
                 </div>
 
-                <form className="set-v2-form" onSubmit={(e) => { e.preventDefault(); notify('Profile changes saved'); }}>
-                  <div className="set-v2-grid-2">
-                    <div className="set-v2-input-field">
-                      <label>First Name</label>
-                      <div className="set-v2-input-shell">
-                        <input
-                          type="text"
-                          value={profile.firstName}
-                          onChange={(e) => setProfile({ ...profile, firstName: e.target.value })}
-                          placeholder="First name"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="set-v2-input-field">
-                      <label>Last Name</label>
-                      <div className="set-v2-input-shell">
-                        <input
-                          type="text"
-                          value={profile.lastName}
-                          onChange={(e) => setProfile({ ...profile, lastName: e.target.value })}
-                          placeholder="Last name"
-                        />
-                      </div>
+                <form className="set-v2-form" onSubmit={saveName}>
+                  <div className="set-v2-input-field">
+                    <label htmlFor="set-name">Your name</label>
+                    <div className="set-v2-input-shell">
+                      <input
+                        id="set-name"
+                        value={name}
+                        onChange={(event) => setName(event.target.value)}
+                        placeholder="The name shown around the app"
+                        maxLength={80}
+                      />
                     </div>
                   </div>
 
                   <div className="set-v2-input-field set-v2-mt-20">
-                    <label>Email Address</label>
-                    <div className="set-v2-input-shell set-v2-has-action">
-                      <input
-                        type="email"
-                        value={profile.email}
-                        onChange={(e) => setProfile({ ...profile, email: e.target.value })}
-                        placeholder="Email address"
-                      />
-                      <button
-                        type="button"
-                        className="set-v2-input-icon-btn"
-                        onClick={() => notify('Editing email address')}
-                        title="Edit email"
-                      >
-                        <Pencil size={15} />
-                      </button>
+                    <label htmlFor="set-email">Email address</label>
+                    <div className="set-v2-input-shell">
+                      <input id="set-email" type="email" value={user?.email ?? ''} readOnly disabled />
                     </div>
-                  </div>
-
-                  <div className="set-v2-input-field set-v2-mt-20">
-                    <label>Master Passphrase / Encryption Key</label>
-                    <div className="set-v2-input-shell set-v2-has-action">
-                      <input
-                        type={isEditingPassword ? 'text' : 'password'}
-                        value={profile.password}
-                        onChange={(e) => setProfile({ ...profile, password: e.target.value })}
-                        placeholder="Passphrase"
-                      />
-                      <button
-                        type="button"
-                        className="set-v2-input-icon-btn"
-                        onClick={() => {
-                          setIsEditingPassword((prev) => !prev);
-                          notify(isEditingPassword ? 'Passphrase masked' : 'Passphrase visible');
-                        }}
-                        title="Toggle passphrase visibility"
-                      >
-                        {isEditingPassword ? <Eye size={15} /> : <Pencil size={15} />}
-                      </button>
-                    </div>
+                    {/* Said plainly rather than hidden behind a disabled box. */}
+                    <p className="set-v2-field-note">
+                      This address cannot be changed here. Both ways back into your
+                      account — the sign-in link and “forgot password” — go to it, so
+                      moving it needs a confirmation email that DocuMend does not send yet.
+                    </p>
                   </div>
 
                   <div className="set-v2-form-submit">
-                    <button type="submit" className="set-v2-save-btn">
+                    <button type="submit" className="set-v2-save-btn" disabled={!nameChanged || savingName}>
                       <Save size={15} />
-                      <span>Save Profile Changes</span>
+                      <span>{savingName ? 'Saving…' : 'Save your name'}</span>
                     </button>
                   </div>
                 </form>
@@ -388,35 +314,72 @@ export default function Settings() {
                   <div className="set-v2-action-strip">
                     <div className="set-v2-strip-copy">
                       <div className="set-v2-strip-title">
-                        <History size={16} className="set-v2-accent-icon" />
-                        <strong>Login & Session Audit</strong>
+                        <KeyRound size={16} className="set-v2-accent-icon" />
+                        <strong>{hasPassword ? 'Change your password' : 'Choose a password'}</strong>
                       </div>
-                      <p>Last authenticated session: {profile.lastLogin} · Desktop Client (Lahore, PK)</p>
+                      <p>
+                        {hasPassword
+                          ? 'Saving a new one signs you out everywhere else.'
+                          : 'This account signs in with Google or an emailed link. A password gives you a second way in.'}
+                      </p>
                     </div>
-                    <button
-                      type="button"
-                      className="set-v2-secondary-btn"
-                      onClick={() => notify('Session logs decrypted: 1 active device')}
-                    >
-                      View Activity Log
+                    <button type="button" className="set-v2-secondary-btn" onClick={() => navigate('/set-password')}>
+                      {hasPassword ? 'Change' : 'Set one'} <ArrowRight size={13} />
+                    </button>
+                  </div>
+
+                  <div className="set-v2-action-strip">
+                    <div className="set-v2-strip-copy">
+                      <div className="set-v2-strip-title">
+                        <Sparkles size={16} className="set-v2-accent-icon" />
+                        <strong>Your plan</strong>
+                      </div>
+                      <p>You are on the {tier.toLowerCase()} plan.</p>
+                    </div>
+                    <button type="button" className="set-v2-secondary-btn" onClick={() => navigate('/pricing')}>
+                      See plans <ArrowRight size={13} />
+                    </button>
+                  </div>
+
+                  <div className="set-v2-action-strip">
+                    <div className="set-v2-strip-copy">
+                      <div className="set-v2-strip-title">
+                        <LogOut size={16} className="set-v2-accent-icon" />
+                        <strong>Sign out everywhere</strong>
+                      </div>
+                      <p>Ends every session on every computer and phone, this one included. For a laptop you no longer have.</p>
+                    </div>
+                    <button type="button" className="set-v2-secondary-btn" onClick={endEverySession}>
+                      Sign out everywhere
                     </button>
                   </div>
 
                   <div className="set-v2-action-strip set-v2-danger-strip">
                     <div className="set-v2-strip-copy">
                       <div className="set-v2-strip-title">
-                        <ShieldAlert size={16} className="set-v2-danger-icon" />
-                        <strong className="set-v2-danger-text">Purge Account & Local Vault</strong>
+                        <Database size={16} className="set-v2-danger-icon" />
+                        <strong className="set-v2-danger-text">Erase the documents in this browser</strong>
                       </div>
-                      <p>Permanently removes cryptographic keys, IndexedDB snapshots, and custom configurations.</p>
+                      <p>
+                        Your account and your document list stay. The text itself is only
+                        here, so this cannot be undone{storage?.usage ? ` (${formatBytes(storage.usage)} stored)` : ''}.
+                      </p>
                     </div>
-                    <button
-                      type="button"
-                      className="set-v2-danger-btn"
-                      onClick={() => setModal('logout')}
-                    >
-                      <Trash2 size={14} />
-                      <span>Delete Account</span>
+                    <button type="button" className="set-v2-danger-btn" onClick={clearThisDevice}>
+                      <Trash2 size={14} /> <span>Erase</span>
+                    </button>
+                  </div>
+
+                  <div className="set-v2-action-strip set-v2-danger-strip">
+                    <div className="set-v2-strip-copy">
+                      <div className="set-v2-strip-title">
+                        <AlertTriangle size={16} className="set-v2-danger-icon" />
+                        <strong className="set-v2-danger-text">Close your account</strong>
+                      </div>
+                      <p>Erases the account, the document list on the server, and every document in this browser.</p>
+                    </div>
+                    <button type="button" className="set-v2-danger-btn" onClick={closeAccount}>
+                      <Trash2 size={14} /> <span>Close account</span>
                     </button>
                   </div>
                 </div>
@@ -424,62 +387,58 @@ export default function Settings() {
             </div>
           )}
 
-          {/* TAB 2: DOCUMENT BLUEPRINTS */}
+          {/* ============================================ TAB 2: DOCUMENT TYPES */}
           {activeTab === 'templates' && (
             <div className="set-v2-panel set-v2-fade-in">
               <div className="set-v2-template-layout">
                 <div className="set-v2-blueprints-column">
                   <div className="set-v2-section-heading">
-                    <h3>Available Academic & Legal Schemas</h3>
-                    <p>Select a blueprint to calibrate real-time gap analysis and chapter enforcement.</p>
+                    <h3>What the engine expects of each kind of document</h3>
+                    <p>
+                      Pick the one new documents should start as. You can still change a
+                      document&apos;s type when you create it; this is only the default.
+                    </p>
                   </div>
 
                   <div className="set-v2-bp-grid">
-                    {blueprintsData.map((bp) => {
-                      const isSelected = selectedBpId === bp.id;
+                    {KINDS.map((entry) => {
+                      const selected = defaultKind === entry.name;
+                      const sections = sectionsFor(entry.key);
                       return (
                         <div
-                          key={bp.id}
-                          className={`set-v2-bp-card ${isSelected ? 'is-selected' : ''}`}
-                          onClick={() => {
-                            setSelectedBpId(bp.id);
-                            notify(`Selected ${bp.title}`);
-                          }}
+                          key={entry.key}
+                          className={`set-v2-bp-card ${selected ? 'is-selected' : ''}`}
+                          onClick={() => setDefaultKind(entry.name)}
                         >
                           <div className="set-v2-bp-top">
-                            <span className="set-v2-bp-badge">{bp.badge}</span>
-                            {isSelected && (
+                            <span className="set-v2-bp-badge">
+                              {sections.length ? `${sections.length} sections` : 'No template'}
+                            </span>
+                            {selected && (
                               <span className="set-v2-selected-indicator">
-                                <Check size={12} strokeWidth={3} /> Active
+                                <Check size={12} strokeWidth={3} /> Default
                               </span>
                             )}
                           </div>
 
-                          <h4>{bp.title}</h4>
-                          <p>{bp.subtitle}</p>
+                          <h4>{entry.name}</h4>
+                          <p>{entry.blurb}</p>
 
                           <div className="set-v2-bp-tags">
-                            {bp.tags.map((tag) => (
-                              <span key={tag} className="set-v2-bp-tag-pill">{tag}</span>
+                            {sections.slice(0, 4).map(([sectionName]) => (
+                              <span key={sectionName} className="set-v2-bp-tag-pill">{sectionName}</span>
                             ))}
-                          </div>
-
-                          <div className="set-v2-bp-stats-bar">
-                            <span>{bp.stats.pages}</span>
-                            <span>•</span>
-                            <span>{bp.stats.citations}</span>
+                            {sections.length > 4 && (
+                              <span className="set-v2-bp-tag-pill">+{sections.length - 4} more</span>
+                            )}
                           </div>
 
                           <button
                             type="button"
-                            className={`set-v2-bp-use-btn ${isSelected ? 'is-active-btn' : ''}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedBpId(bp.id);
-                              notify(`Blueprint applied to next document draft`);
-                            }}
+                            className={`set-v2-bp-use-btn ${selected ? 'is-active-btn' : ''}`}
+                            onClick={(event) => { event.stopPropagation(); setDefaultKind(entry.name); }}
                           >
-                            <span>{isSelected ? 'Currently Calibrated' : 'Apply Blueprint'}</span>
+                            <span>{selected ? 'Default for new documents' : 'Make this the default'}</span>
                             <ArrowRight size={13} />
                           </button>
                         </div>
@@ -493,49 +452,41 @@ export default function Settings() {
                     <div className="set-v2-specs-head">
                       <div className="set-v2-specs-kicker">
                         <FileCheck size={14} />
-                        <span>Live AST Hierarchy</span>
+                        <span>What it looks for</span>
                       </div>
-                      <h4>{activeBlueprint.specs.title}</h4>
+                      <h4>{activeKind.name}</h4>
                     </div>
 
                     <div className="set-v2-specs-tree">
-                      {activeBlueprint.specs.structure.map((item) => (
-                        <div key={item.id} className="set-v2-tree-node">
-                          <div className="set-v2-node-title">
-                            <span className="set-v2-node-bullet" />
-                            <strong>{item.title}</strong>
-                          </div>
-
-                          {item.parts && (
+                      {sectionsFor(activeKind.key).length === 0 ? (
+                        <p className="set-v2-field-note">
+                          No template, so no heading is ever reported as missing. Wording,
+                          figures and repetition are still checked.
+                        </p>
+                      ) : (
+                        sectionsFor(activeKind.key).map(([sectionName, keywords]) => (
+                          <div key={sectionName} className="set-v2-tree-node">
+                            <div className="set-v2-node-title">
+                              <span className="set-v2-node-bullet" />
+                              <strong>{sectionName}</strong>
+                            </div>
+                            {/* These are the words a heading may use and still
+                                count as this section — the engine's own list. */}
                             <div className="set-v2-node-sublist">
-                              {item.parts.map((p) => (
-                                <div key={p} className="set-v2-subnode">
-                                  <span>↳</span> {p}
-                                </div>
-                              ))}
+                              <div className="set-v2-subnode">
+                                <span>↳</span> also accepts: {keywords.join(', ')}
+                              </div>
                             </div>
-                          )}
-
-                          {item.warning && (
-                            <div className="set-v2-node-warning">
-                              <AlertTriangle size={13} />
-                              <span>{item.warning}</span>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-
-                      {activeBlueprint.specs.remaining > 0 && (
-                        <div className="set-v2-tree-more">
-                          + {activeBlueprint.specs.remaining} additional specialized sub-chapters
-                        </div>
+                          </div>
+                        ))
                       )}
                     </div>
 
                     <div className="set-v2-specs-footer-callout">
-                      <Zap size={16} className="set-v2-accent-gold" />
+                      <ShieldCheck size={16} className="set-v2-accent-gold" />
                       <p>
-                        WASM Gap Analysis continuously cross-references your draft against this tree to highlight missing sections in realtime.
+                        This list is read straight from the engine, so what you see here is
+                        exactly what your draft is measured against.
                       </p>
                     </div>
                   </div>
@@ -544,8 +495,8 @@ export default function Settings() {
             </div>
           )}
 
-          {/* TAB 3: DIAGNOSTICS & WASM COMPUTE RULES */}
-          {activeTab === 'diagnostics' && (
+          {/* ========================================== TAB 3: CHECKS & STORAGE */}
+          {activeTab === 'checks' && (
             <div className="set-v2-panel set-v2-fade-in">
               <div className="set-v2-diag-layout">
                 <div className="set-v2-card-glass set-v2-mb-24">
@@ -553,33 +504,43 @@ export default function Settings() {
                     <div className="set-v2-diag-title-wrap">
                       <Database size={18} className="set-v2-accent-icon" />
                       <div>
-                        <h4>IndexedDB Sandbox Quota</h4>
-                        <p>Encrypted local storage allocation managed directly inside your browser profile.</p>
+                        <h4>Storage in this browser</h4>
+                        <p>Your documents are here and nowhere else. This is what the browser says it is holding.</p>
                       </div>
                     </div>
-                    <span className="set-v2-quota-pill">42 MB / 500 MB (8.4% used)</span>
+                    <span className="set-v2-quota-pill">
+                      {storage?.quota
+                        ? `${formatBytes(storage.usage)} of ${formatBytes(storage.quota)} (${formatPercent(storage.percent)})`
+                        : 'Measuring…'}
+                    </span>
                   </div>
 
                   <div className="set-v2-meter-box">
                     <div className="set-v2-meter-track">
-                      <div className="set-v2-seg-snap" style={{ width: '18%' }} title="Snapshots: 18MB" />
-                      <div className="set-v2-seg-ai" style={{ width: '42%' }} title="ODIE WASM Weights: 24MB" />
+                      <div
+                        className="set-v2-seg-snap"
+                        style={{ width: `${Math.min(100, storage?.percent ?? 0)}%` }}
+                        title={storage ? formatBytes(storage.usage) : ''}
+                      />
                     </div>
-
                     <div className="set-v2-meter-legend">
                       <div className="set-v2-legend-item">
                         <span className="set-v2-dot set-v2-dot-blue" />
-                        <span>Document Snapshots & AST (18 MB)</span>
-                      </div>
-                      <div className="set-v2-legend-item">
-                        <span className="set-v2-dot set-v2-dot-green" />
-                        <span>Compiled Edge WASM Modules (24 MB)</span>
+                        <span>Used by DocuMend{storage ? ` (${formatBytes(storage.usage)})` : ''}</span>
                       </div>
                       <div className="set-v2-legend-item">
                         <span className="set-v2-dot set-v2-dot-empty" />
-                        <span>Available Buffer (458 MB)</span>
+                        <span>
+                          Still free
+                          {storage?.quota ? ` (${formatBytes(Math.max(0, storage.quota - storage.usage))})` : ''}
+                        </span>
                       </div>
                     </div>
+                    {storage?.nearlyFull && (
+                      <p className="set-v2-field-note">
+                        Nearly full. Old versions are the usual culprit — the Storage page can clear them.
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -588,96 +549,48 @@ export default function Settings() {
                     <div className="set-v2-diag-title-wrap">
                       <Cpu size={18} className="set-v2-accent-green" />
                       <div>
-                        <h4>WASM Edge Compute Pipeline</h4>
-                        <p>Execution parameters governing semantic contradiction heuristics and latency budgets.</p>
+                        <h4>What the editor checks</h4>
+                        <p>
+                          Switch one off and the editor stops raising it. The engine runs on
+                          this computer, so nothing you write is sent anywhere to be read.
+                        </p>
                       </div>
                     </div>
                     <span className="set-v2-badge-verified">
-                      <CheckCircle2 size={12} /> ODIE Kernel v2.4.1 Active
+                      <CheckCircle2 size={12} /> {CHECKS.length - mutedChecks.length} of {CHECKS.length} on
                     </span>
                   </div>
 
                   <div className="set-v2-rules-list">
-                    <div className="set-v2-rule-card">
-                      <div className="set-v2-rule-info">
-                        <div className="set-v2-rule-title">
-                          <Zap size={15} className="set-v2-accent-gold" />
-                          <strong>Contradiction Parsing Engine</strong>
-                          {rules.contradictionParsing && <span className="set-v2-pill-on">Active</span>}
+                    {CHECKS.map((check) => {
+                      const on = !mutedChecks.includes(check.id);
+                      return (
+                        <div key={check.id} className="set-v2-rule-card">
+                          <div className="set-v2-rule-info">
+                            <div className="set-v2-rule-title">
+                              <strong>{check.title}</strong>
+                              <span className={on ? 'set-v2-pill-on' : 'set-v2-pill-off'}>
+                                {KIND_LABELS[check.kind]}
+                              </span>
+                            </div>
+                            <p>{check.blurb}</p>
+                          </div>
+                          <label className="set-v2-switch">
+                            <span className="dash-sr">{check.title}</span>
+                            <input type="checkbox" checked={on} onChange={() => toggleCheck(check)} />
+                            <span className="set-v2-slider" />
+                          </label>
                         </div>
-                        <p>Evaluates sentence-level claim compatibility across non-adjacent paragraphs in under 50ms.</p>
-                      </div>
-                      <label className="set-v2-switch">
-                        <input
-                          type="checkbox"
-                          checked={rules.contradictionParsing}
-                          onChange={() => handleToggleRule('contradictionParsing', 'Contradiction Parsing')}
-                        />
-                        <span className="set-v2-slider" />
-                      </label>
-                    </div>
-
-                    <div className="set-v2-rule-card">
-                      <div className="set-v2-rule-info">
-                        <div className="set-v2-rule-title">
-                          <Layers size={15} className="set-v2-accent-icon" />
-                          <strong>Structural Gap Context Module</strong>
-                          {rules.gapAnalysisContext && <span className="set-v2-pill-on">Active</span>}
-                        </div>
-                        <p>Identifies omissions in required methodology steps according to selected schema blueprints.</p>
-                      </div>
-                      <label className="set-v2-switch">
-                        <input
-                          type="checkbox"
-                          checked={rules.gapAnalysisContext}
-                          onChange={() => handleToggleRule('gapAnalysisContext', 'Gap Analysis')}
-                        />
-                        <span className="set-v2-slider" />
-                      </label>
-                    </div>
-
-                    <div className="set-v2-rule-card">
-                      <div className="set-v2-rule-info">
-                        <div className="set-v2-rule-title">
-                          <RefreshCw size={15} className="set-v2-accent-green" />
-                          <strong>Self-Healing Semantic Remediation</strong>
-                          {!rules.selfHealingRemediation && <span className="set-v2-pill-off">Standby</span>}
-                        </div>
-                        <p>Automatically proposes replacement syntaxes for detected logic flaws during draft review.</p>
-                      </div>
-                      <label className="set-v2-switch">
-                        <input
-                          type="checkbox"
-                          checked={rules.selfHealingRemediation}
-                          onChange={() => handleToggleRule('selfHealingRemediation', 'Self Healing Remediation')}
-                        />
-                        <span className="set-v2-slider" />
-                      </label>
-                    </div>
-
-                    <div className="set-v2-rule-card">
-                      <div className="set-v2-rule-info">
-                        <div className="set-v2-rule-title">
-                          <Lock size={15} className="set-v2-accent-icon" />
-                          <strong>Zero-Knowledge Disk Encryption</strong>
-                          {rules.zeroKnowledgeDiskEncryption && <span className="set-v2-pill-on">Active</span>}
-                        </div>
-                        <p>Payloads written to client IndexedDB storage are scrambled using WebCrypto AES-GCM-256.</p>
-                      </div>
-                      <label className="set-v2-switch">
-                        <input
-                          type="checkbox"
-                          checked={rules.zeroKnowledgeDiskEncryption}
-                          onChange={() => handleToggleRule('zeroKnowledgeDiskEncryption', 'Disk Encryption')}
-                        />
-                        <span className="set-v2-slider" />
-                      </label>
-                    </div>
+                      );
+                    })}
                   </div>
 
                   <div className="set-v2-validation-banner">
                     <ShieldCheck size={16} />
-                    <span>All computation strictly executed via local WebAssembly mathematical contract. No plaintext egress.</span>
+                    <span>
+                      Every check runs inside this browser, in WebAssembly compiled from Rust.
+                      No sentence of yours leaves the device to be analysed.
+                    </span>
                   </div>
                 </div>
               </div>
@@ -690,10 +603,7 @@ export default function Settings() {
         mode={modal}
         onClose={() => setModal(null)}
         onSubmit={() => setModal(null)}
-        onLogout={() => {
-          setModal(null);
-          navigate('/');
-        }}
+        onLogout={() => { setModal(null); navigate('/'); }}
       />
 
       {toast && (

@@ -351,3 +351,17 @@
   background: rgba(16, 28, 23, .82);
   color: #c3d3ca;
 }
+
+/* Privacy mode hides the titles here too, the same way the dashboard does. */
+.dash-private .docs-card-title,
+.dash-private .docs-card-meta { filter: blur(4px); transition: filter .12s ease; }
+
+.dash-private .docs-card:hover .docs-card-title,
+.dash-private .docs-card:hover .docs-card-meta,
+.dash-private .docs-card:focus-visible .docs-card-title,
+.dash-private .docs-card:focus-visible .docs-card-meta { filter: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-private .docs-card-title,
+  .dash-private .docs-card-meta { transition: none; }
+}

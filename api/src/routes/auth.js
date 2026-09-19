@@ -119,6 +119,57 @@ export default async function authRoutes(app) {
   }));
 
   /**
+   * PATCH /auth/me — the name shown around the app.
+   *
+   * The email address is deliberately not editable here. Changing it would
+   * move the account to an inbox nobody has proved they can read, and every
+   * way back in (the sign-in link, "forgot password") runs through that inbox.
+   * It needs a verification round trip, which does not exist yet; pretending
+   * otherwise would be the sort of half-feature that loses someone's account.
+   */
+  app.patch('/auth/me', { preHandler: requireUser }, async (request, reply) => {
+    const parsed = z.object({ name: z.string().min(2, 'Please give a name.').max(80) })
+      .safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid', message: firstProblem(parsed.error) });
+
+    const user = await prisma.user.update({
+      where: { id: request.account.id },
+      data: { name: parsed.data.name.trim() },
+    });
+    return reply.send({ user: publicUser(user) });
+  });
+
+  /**
+   * POST /auth/logout-all — sign out everywhere, this device included.
+   *
+   * Every refresh token for the account is deleted, so a browser left signed
+   * in on a shared computer is shut out the moment its short access token
+   * expires. This is the button someone reaches for after losing a laptop.
+   */
+  app.post('/auth/logout-all', { preHandler: requireUser }, async (request, reply) => {
+    const { count } = await prisma.session.deleteMany({ where: { userId: request.account.id } });
+    return reply.send({ ok: true, signedOut: count });
+  });
+
+  /**
+   * DELETE /auth/me — close the account.
+   *
+   * What this can and cannot reach is worth being clear about. It erases the
+   * account and everything the server holds: the name, the email, the
+   * sessions, and the document titles and dates. It cannot touch the
+   * documents themselves — those are in the browser, which is the whole point
+   * of DocuMend — so the app clears them on its side before calling this.
+   */
+  app.delete('/auth/me', { preHandler: requireUser }, async (request, reply) => {
+    await prisma.$transaction([
+      prisma.session.deleteMany({ where: { userId: request.account.id } }),
+      prisma.documentMeta.deleteMany({ where: { userId: request.account.id } }),
+      prisma.user.delete({ where: { id: request.account.id } }),
+    ]);
+    return reply.send({ ok: true });
+  });
+
+  /**
    * POST /auth/password — set or change this account's password.
    *
    * This is the end of the "forgot password" journey. DocuMend does not email

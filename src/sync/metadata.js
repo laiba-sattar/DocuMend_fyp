@@ -153,6 +153,11 @@ export function listRemote() {
   return db.remoteDocs.orderBy('deviceUpdatedAt').reverse().toArray();
 }
 
+/** How many changes are still waiting to go up. The dashboard shows this. */
+export function pendingCount() {
+  return db.syncQueue.count();
+}
+
 /* ---------------------------------------------------------------------------
    Turning it on and off
    ------------------------------------------------------------------------- */

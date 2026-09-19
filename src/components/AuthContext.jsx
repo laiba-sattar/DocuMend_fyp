@@ -13,6 +13,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { api, hasStoredSession } from '../api/client';
 import { startSync, stopSync } from '../sync/metadata';
+import { setCurrentTier } from '../plans/limits';
 
 const AuthContext = createContext(null);
 
@@ -38,6 +39,13 @@ export function AuthProvider({ children }) {
       });
     return () => { alive = false; };
   }, [status]);
+
+  /**
+   * The plan decides how many documents may exist and how much history is
+   * kept, and those rules are checked outside React (storage/documents.js),
+   * so the tier is pushed there whenever it changes.
+   */
+  useEffect(() => { setCurrentTier(user?.tier ?? 'BASIC'); }, [user?.tier]);
 
   /**
    * The document LIST follows the account; the text stays on this device.
@@ -77,6 +85,29 @@ export function AuthProvider({ children }) {
     setStatus('signed-out');
   }, []);
 
+  /** Settings → the name shown around the app. */
+  const updateProfile = useCallback(async (details) => {
+    const account = await api.updateProfile(details);
+    setUser(account);
+    return account;
+  }, []);
+
+  /** Settings → sign out on every device, this one included. */
+  const signOutEverywhere = useCallback(async () => {
+    await api.signOutEverywhere();
+    await api.logout(); // forget the tokens held in this browser too
+    setUser(null);
+    setStatus('signed-out');
+  }, []);
+
+  /** Settings → close the account. The caller clears local documents first. */
+  const deleteAccount = useCallback(async () => {
+    await api.deleteAccount();
+    await api.logout().catch(() => {}); // the session is already gone server-side
+    setUser(null);
+    setStatus('signed-out');
+  }, []);
+
   const value = useMemo(() => ({
     user,
     status,
@@ -85,11 +116,16 @@ export function AuthProvider({ children }) {
     firstName: user?.name?.trim().split(/\s+/)[0] ?? '',
     /** 'BASIC' | 'PREMIUM' | 'ENTERPRISE' */
     tier: user?.tier ?? 'BASIC',
+    /** Does this account have a password, or does it only sign in by link? */
+    hasPassword: Boolean(user?.hasPassword),
     signIn,
     signUp,
     signInWithFirebase,
     signOut,
-  }), [user, status, signIn, signUp, signInWithFirebase, signOut]);
+    updateProfile,
+    signOutEverywhere,
+    deleteAccount,
+  }), [user, status, signIn, signUp, signInWithFirebase, signOut, updateProfile, signOutEverywhere, deleteAccount]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

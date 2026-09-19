@@ -42,6 +42,7 @@ import {
 import { workspaceRoutes } from '../components/workspace-nav';
 import { useTheme } from '../components/ThemeContext';
 import { navigate } from '../router';
+import { usePreference } from '../settings/preferences';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { createDocument, listDocuments } from '../storage/documents';
 import { listRemote } from '../sync/metadata';
@@ -137,7 +138,9 @@ function MyDocuments() {
   const [activeNav, setActiveNav] = useState('My documents');
   const [activeTab, setActiveTab] = useState('Home');
   const [activeCategory, setActiveCategory] = useState('All');
-  const [privacyMode, setPrivacyMode] = useState(true);
+  // Kept in the browser's settings store, so the choice survives a reload
+  // and is the same on every page.
+  const [privacyMode, setPrivacyMode] = usePreference('privacyMode');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebar, setMobileSidebar] = useState(false);
   const [search, setSearch] = useState('');
@@ -224,7 +227,10 @@ function MyDocuments() {
       announce('New document created');
     } catch (error) {
       console.error(error);
-      announce('The document could not be saved. Check that your browser allows site storage, then try again.');
+      // A plan limit is a decision, not a failure — say which one it was.
+      announce(error?.code === 'plan_limit'
+          ? error.message
+          : 'The document could not be saved. Check that your browser allows site storage, then try again.');
     }
   };
 
@@ -234,7 +240,7 @@ function MyDocuments() {
   };
 
   return (
-    <div className={`dash-shell ${darkMode ? 'dash-dark' : ''}`}>
+    <div className={`dash-shell ${darkMode ? 'dash-dark' : ''} ${privacyMode ? 'dash-private' : ''}`}>
       <MobileTopbar
         onMenu={() => setMobileSidebar(true)}
         onThemeToggle={toggleDarkMode}
@@ -246,7 +252,7 @@ function MyDocuments() {
         onNavigate={selectNav}
         privacyMode={privacyMode}
         onPrivacyToggle={() => {
-          setPrivacyMode((prev) => !prev);
+          setPrivacyMode(!privacyMode);
           announce(`Privacy mode ${privacyMode ? 'paused' : 'enabled'}`);
         }}
         darkMode={darkMode}
@@ -261,12 +267,12 @@ function MyDocuments() {
         onClose={() => setMobileSidebar(false)}
         activeNav={activeNav}
         onNavigate={selectNav}
-        onPrivacyToggle={() => setPrivacyMode((prev) => !prev)}
+        onPrivacyToggle={() => setPrivacyMode(!privacyMode)}
         onLogout={() => setModal('logout')}
       />
 
       <main className={`dash-main ${sidebarCollapsed ? 'is-wide' : ''}`}>
-        <WorkspaceHeader search={search} onSearchChange={setSearch} onAnnounce={announce} />
+        <WorkspaceHeader onAnnounce={announce} />
 
         <div className="dash-body">
           {/* Editor-style tab strip */}

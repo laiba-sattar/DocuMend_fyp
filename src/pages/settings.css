@@ -1142,3 +1142,28 @@
   border-color: rgba(32, 179, 119, 0.2) !important;
   color: #4ade80 !important;
 }
+/* A quiet line under a field, for saying why something is the way it is
+   rather than leaving a disabled box to be argued with. */
+.set-v2-field-note {
+  margin: 8px 0 0;
+  max-width: 62ch;
+  font-size: 12px;
+  line-height: 1.55;
+  opacity: .72;
+}
+
+/* A handful of layout classes were used by the markup but never had rules of
+   their own (they predate this page being rewritten). These are the modest
+   defaults they were relying on the cascade for. */
+
+.set-v2-panel { display: block; }
+
+.set-v2-blueprints-column { min-width: 0; }
+.set-v2-specs-aside { min-width: 0; }
+
+.set-v2-tree-node + .set-v2-tree-node { margin-top: 12px; }
+
+.set-v2-diag-layout { display: grid; gap: 20px; }
+.set-v2-meter-box { margin-top: 14px; }
+
+.set-v2-tag-icon { flex: none; }

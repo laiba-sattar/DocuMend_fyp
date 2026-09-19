@@ -36,132 +36,237 @@ import {
 import { workspaceRoutes } from '../components/workspace-nav';
 import { useTheme } from '../components/ThemeContext';
 import { navigate } from '../router';
+import { usePreference } from '../settings/preferences';
 import './help.css';
 
+/**
+ * Every article below describes something you can actually go and do.
+ *
+ * The version before this one did not. It explained how to switch on
+ * "strict air-gapped offline mode", how AES-GCM keeps your drafts encrypted
+ * on disk, how to validate a DOI against CrossRef, and how to pick the "UCP
+ * Final Year Project" blueprint in Settings. None of those exist in this
+ * build. Help that sends someone looking for a button that was never written
+ * is worse than a blank page: they assume they are the problem.
+ *
+ * Where something is not built, the article says so, and says where it is in
+ * the plan. Where a number is quoted, it comes from the code.
+ */
 const helpSections = [
   {
-    id: 'odie',
-    title: 'ODIE Engine & AI Analysis',
-    icon: Cpu,
+    id: 'start',
+    title: 'Getting started',
+    icon: Compass,
     tone: 'mint',
-    description: 'Learn how local WebAssembly heuristics detect contradictions and repair draft logic.',
+    description: 'Making a document, bringing one in, and finding your way around the editor.',
     articles: [
       {
-        id: 'contradiction-how',
-        title: 'How does contradiction detection work?',
+        id: 'first-document',
+        title: 'Making your first document',
+        time: '2 min read',
+        tag: 'Basics',
+        content:
+          'From the dashboard, choose "Create document". Give it a name and a type — Thesis, Research paper, Report, Legal or Other. The type matters: it tells the engine which sections this kind of document usually has, so it can tell you when one is missing. You can change the default type under Settings → Document types.',
+      },
+      {
+        id: 'import-file',
+        title: 'Opening a file you already have',
+        time: '2 min read',
+        tag: 'Basics',
+        content:
+          'Word (.docx), PDF, plain text and Markdown files can all be opened. Use "Upload / drop" on the dashboard, or drag the file straight onto that tile. The file is converted inside your browser — it is not uploaded anywhere — and becomes an ordinary DocuMend document you can edit.',
+      },
+      {
+        id: 'saving',
+        title: 'How saving works',
+        time: '1 min read',
+        tag: 'Basics',
+        content:
+          'There is no save button to remember. The editor saves to this browser a few seconds after you stop typing, and Ctrl+S saves immediately. The status bar at the bottom shows when it last saved.',
+      },
+      {
+        id: 'export',
+        title: 'Getting your document back out',
+        time: '2 min read',
+        tag: 'Basics',
+        content:
+          'Editor → Export offers Word (.docx) and plain text, and printing to PDF through your browser\u2019s print dialogue. Nothing you write is locked inside DocuMend.',
+      },
+    ],
+  },
+  {
+    id: 'checks',
+    title: 'The writing checks',
+    icon: Cpu,
+    tone: 'gold',
+    description: 'What the engine looks for, how to act on it, and how to quieten it.',
+    articles: [
+      {
+        id: 'what-checks',
+        title: 'What DocuMend checks for',
         time: '3 min read',
-        tag: 'Core Heuristics',
+        tag: 'Checks',
         content:
-          'The ODIE WebAssembly engine runs directly in your browser. It builds an Abstract Syntax Tree (AST) of all propositions across every section and compares logical assertions. If Section 1.2 claims a dataset of 5,000 samples and Section 3.2 mentions 3,200 samples, the engine flags a semantic conflict with < 50ms latency.',
+          'Eight things. Three are about what you have written: figures that disagree (40% in one place, 45% in another about the same thing), two sentences that contradict each other, and a sentence that repeats one you already wrote. Five are about shape: a section your kind of document usually has but yours does not, a heading under an unusual name, a heading with nothing under it, a jump from Heading 1 to Heading 3, and two sections with the same name. The full list with descriptions is on the Features page.',
       },
       {
-        id: 'what-is-wasm-engine',
-        title: 'What is the ODIE WASM engine?',
-        time: '4 min read',
-        tag: 'Architecture',
-        content:
-          'ODIE is a high-performance compiled WebAssembly module that executes purely on client hardware. It ensures that zero document tokens, sentences, or paragraphs are uploaded to third-party cloud servers during baseline editing and syntax repair.',
-      },
-      {
-        id: 'self-healing-apply',
-        title: 'How to apply a self-healing repair suggestion?',
+        id: 'where-issues',
+        title: 'Where the findings appear',
         time: '2 min read',
         tag: 'Workflow',
         content:
-          'When ODIE identifies broken phrasing, mismatched citations, or heading misalignments, a golden pill appears in the margin. Clicking "Accept Repair" atomically replaces the AST node without altering your formatting or cursor position.',
+          'Open a document and turn on the Review panel from the editor toolbar. Findings are listed there, and the words they refer to are highlighted in the page. "Show me" jumps to the sentence. Where DocuMend can offer a fix, the card has a button that makes the change for you — for example, using the same figure in both places, or adding a missing heading in the right position with the numbering kept.',
       },
       {
-        id: 'gap-analysis-guide',
-        title: 'Calibrating Structural Gap Analysis with University Templates',
-        time: '4 min read',
-        tag: 'Templates',
+        id: 'turn-off-check',
+        title: 'Turning a check off',
+        time: '1 min read',
+        tag: 'Settings',
         content:
-          'Under Workspace Settings > Templates, select your institution blueprint (such as UCP Final Year Project or IEEE Conference). The gap analysis engine will construct a live checklist in your editor margin and alert you if mandatory sections are missing.',
+          'Settings → Checks & storage lists all eight with a switch each; the Features page has the same switches. Turning one off stops it appearing in the review panel on this computer, for good. "Ignore" on a single card is different: it hides that one finding until you reload.',
+      },
+      {
+        id: 'where-it-runs',
+        title: 'Where the analysis happens',
+        time: '2 min read',
+        tag: 'Architecture',
+        content:
+          'On your computer. The checks are written in Rust and compiled to WebAssembly, and they run in a background thread in this browser, so typing never stutters. If WebAssembly cannot load for any reason, an identical set of checks written in JavaScript runs instead — the status pill in the editor\u2019s footer says which one you have. Either way, no sentence of yours is sent anywhere to be analysed.',
       },
     ],
   },
   {
     id: 'privacy',
-    title: 'Privacy, Encryption & Offline Vault',
+    title: 'Where your work lives',
     icon: Lock,
-    tone: 'gold',
-    description: 'Understand zero-knowledge client encryption, local IndexedDB vaults, and offline air-gaps.',
+    tone: 'blue',
+    description: 'What is on your computer, what the server knows, and what is not built yet.',
     articles: [
       {
-        id: 'local-encryption',
-        title: 'How is my data encrypted locally on device?',
+        id: 'what-is-stored',
+        title: 'What is stored, and where',
         time: '3 min read',
-        tag: 'Security',
+        tag: 'Privacy',
         content:
-          'DocuMend uses the WebCrypto API with AES-GCM 256-bit encryption. Document snapshots are serialized and stored inside IndexedDB with your master browser key, preventing other applications or unauthorized scripts from reading drafts on disk.',
+          'The text of your documents is stored in this browser, in IndexedDB, and nowhere else. When you are signed in, DocuMend tells the server a title, a type, a date and a word count for each document — never the text. The server refuses a request that contains document content outright, with an error, rather than quietly ignoring it. That is why a document created on another computer appears in your list with its name but cannot be opened here.',
       },
       {
-        id: 'zk-sync-explained',
-        title: 'What is Zero-Knowledge sync?',
-        time: '5 min read',
-        tag: 'Cloud Sync',
-        content:
-          'When sync is enabled, your document payload is scrambled into blinded ciphertext on your device before transmission. The sync server stores blinded ciphertext without plaintext decryption keys—ensuring only you can decrypt your documents.',
-      },
-      {
-        id: 'offline-only-toggle',
-        title: 'How to enable strict air-gapped offline mode?',
+        id: 'no-encryption-yet',
+        title: 'Is my document encrypted on disk?',
         time: '2 min read',
-        tag: 'Settings',
+        tag: 'Privacy',
         content:
-          'Open the Sidebar and toggle the Privacy Shield switch. Strict air-gap disables all external network telemetry and API lookups, ensuring 100% offline local WASM operation.',
+          'Not yet, and it is worth being straight about it. Documents sit in this browser\u2019s own storage, protected by your computer\u2019s login and by the browser keeping sites apart, but they are not encrypted with a password of yours. Encryption — a password that unlocks the documents, with the key never leaving your device — is section S3 of the build plan and will come with encrypted sync (S9). Until then, treat this browser profile as you would a folder on your desktop.',
+      },
+      {
+        id: 'privacy-mode',
+        title: 'Hiding titles from the person beside you',
+        time: '1 min read',
+        tag: 'Privacy',
+        content:
+          'The Privacy mode switch in the sidebar blurs document titles in the dashboard and library until you point at one. It is for reading in a library or on a train. It does not encrypt anything, and it is remembered between visits.',
+      },
+      {
+        id: 'offline',
+        title: 'Working without the internet',
+        time: '1 min read',
+        tag: 'Offline',
+        content:
+          'Everything except signing in works offline: writing, importing, exporting, version history and all eight checks. Changes to your document list wait in a queue and go up the next time you are online.',
       },
     ],
   },
   {
-    id: 'citations',
-    title: 'Citations, References & Style Presets',
-    icon: BookOpen,
-    tone: 'blue',
-    description: 'Format citation standards, repair broken DOIs, and resolve reference numbering mismatches.',
+    id: 'account',
+    title: 'Your account and plan',
+    icon: Sparkles,
+    tone: 'mint',
+    description: 'Signing in, what each plan allows, and how to leave.',
     articles: [
       {
-        id: 'crossref-validate',
-        title: 'How to validate citations against CrossRef and Semantic Scholar?',
-        time: '3 min read',
-        tag: 'Online Helper',
-        content:
-          'Highlight any bibliographic citation or DOI and trigger "Validate Reference". DocuMend sends an anonymous DOI lookup query to CrossRef to verify author spelling, publication year, and journal title validity.',
-      },
-      {
-        id: 'switch-citation-styles',
-        title: 'Switching between APA 7th, MLA, Harvard, and IEEE formats',
+        id: 'sign-in',
+        title: 'Ways to sign in',
         time: '2 min read',
-        tag: 'Formatting',
+        tag: 'Account',
         content:
-          'Navigate to Settings > Editor Preferences > Default Citation Standard. Changing from APA to IEEE will automatically convert in-text author-date citations `(Aslam et al., 2026)` into numbered references `[1]` across the active document.',
+          'With Google, with a one-time link sent to your email, or with an email address and password. They all reach the same account: if you sign up with a password and later use Google with the same address, it is still you. "Forgot password" sends the same one-time link and lands you on a page where you choose a new password.',
       },
       {
-        id: 'detect-missing-bib',
-        title: 'Fixing in-text citations with missing bibliography entries',
-        time: '3 min read',
-        tag: 'Troubleshooting',
+        id: 'plan-limits',
+        title: 'What the plans actually limit',
+        time: '2 min read',
+        tag: 'Plans',
         content:
-          'The AST parser cross-checks all in-text citation keys with the bibliography block. Orphaned citations are highlighted with a coral indicator and a one-click "Generate Entry" button.',
+          'Basic keeps 10 documents and the last 10 automatic versions of each. Premium removes the document limit and keeps 50 automatic versions; Enterprise keeps 200. Versions you save by hand are never removed, on any plan. These numbers are enforced in the app, not decoration — the eleventh document on Basic is refused with a message saying why. Payments are not connected in this build, so no plan can be bought yet.',
+      },
+      {
+        id: 'sign-out-everywhere',
+        title: 'Signing out of a computer you no longer have',
+        time: '1 min read',
+        tag: 'Account',
+        content:
+          'Settings → Account → "Sign out everywhere" ends every session on every device, this one included. Changing your password does the same thing to every device except the one you changed it on.',
+      },
+      {
+        id: 'leaving',
+        title: 'Erasing your work, or closing your account',
+        time: '2 min read',
+        tag: 'Account',
+        content:
+          'Two separate buttons at the bottom of Settings → Account. "Erase the documents in this browser" removes the text and leaves the account. "Close your account" does both: the account, the document list on the server, and every document here. Neither can be undone, and neither can reach documents on your other computers — those you clear from those computers.',
+      },
+    ],
+  },
+  {
+    id: 'planned',
+    title: 'Not built yet',
+    icon: BookOpen,
+    tone: 'blue',
+    description: 'Things people ask about that this build does not do.',
+    articles: [
+      {
+        id: 'citations-planned',
+        title: 'Reference and citation checking',
+        time: '1 min read',
+        tag: 'Planned',
+        content:
+          'Looking each reference up in CrossRef and Semantic Scholar, and repairing APA, MLA or IEEE formatting, is section S8 of the build plan. Nothing in this build reads your bibliography.',
+      },
+      {
+        id: 'sharing-planned',
+        title: 'Sharing a document with someone',
+        time: '1 min read',
+        tag: 'Planned',
+        content:
+          'Sharing, comments and a link a supervisor can open are section S9, and they depend on encryption (S3) coming first — sending a document anywhere before it can be encrypted would break the promise the rest of this page makes. For now, export to Word or PDF and send that.',
+      },
+      {
+        id: 'mobile-planned',
+        title: 'A phone app',
+        time: '1 min read',
+        tag: 'Planned',
+        content:
+          'An Android app built from this same workspace with Capacitor is section S10. The site works in a phone browser today, though the editor is happiest with a keyboard.',
       },
     ],
   },
 ];
 
+/** Only shortcuts that are really wired up. Checked against Editor.jsx. */
 const keyboardShortcuts = [
-  { keys: ['Ctrl', 'K'], label: 'Quick Command Palette' },
-  { keys: ['Ctrl', 'S'], label: 'Create Instant Snapshot' },
-  { keys: ['Ctrl', 'Shift', 'C'], label: 'Run Contradiction Heuristics' },
-  { keys: ['Ctrl', 'Shift', 'G'], label: 'Toggle Structural Gap Checker' },
-  { keys: ['Ctrl', 'E'], label: 'Open Focus Editor' },
-  { keys: ['Ctrl', 'H'], label: 'Open Version History' },
-  { keys: ['Alt', 'Z'], label: 'Toggle Zen Mode' },
-  { keys: ['Ctrl', 'Shift', 'P'], label: 'Toggle Privacy Air-Gap' },
+  { keys: ['Ctrl', 'S'], label: 'Save now' },
+  { keys: ['Ctrl', 'F'], label: 'Find in document' },
+  { keys: ['Ctrl', 'H'], label: 'Find and replace' },
+  { keys: ['Ctrl', 'B'], label: 'Bold' },
+  { keys: ['Ctrl', 'I'], label: 'Italic' },
+  { keys: ['Ctrl', 'U'], label: 'Underline' },
+  { keys: ['Ctrl', 'Z'], label: 'Undo' },
+  { keys: ['Ctrl', 'Y'], label: 'Redo' },
 ];
 
 export default function Help() {
   const [searchQuery, setSearchQuery] = useState('');
-  const [openSections, setOpenSections] = useState({ odie: true, privacy: true, citations: true });
+  const [openSections, setOpenSections] = useState({ start: true, checks: true, privacy: true });
   const [selectedArticle, setSelectedArticle] = useState(null);
   const [toast, setToast] = useState('');
 
@@ -170,7 +275,8 @@ export default function Help() {
 
   // Workspace Chrome Shell States
   const [activeNav, setActiveNav] = useState('Help and Guide');
-  const [privacyMode, setPrivacyMode] = useState(true);
+  // The same stored preference every other page uses.
+  const [privacyMode, setPrivacyMode] = usePreference('privacyMode');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebar, setMobileSidebar] = useState(false);
   const [modal, setModal] = useState(null);
@@ -225,7 +331,7 @@ export default function Help() {
   };
 
   return (
-    <div className={`dash-shell ${darkMode ? 'dash-dark' : ''}`}>
+    <div className={`dash-shell ${darkMode ? 'dash-dark' : ''} ${privacyMode ? 'dash-private' : ''}`}>
       <MobileTopbar
         onMenu={() => setMobileSidebar(true)}
         onThemeToggle={toggleDarkMode}
@@ -237,7 +343,7 @@ export default function Help() {
         onNavigate={selectNav}
         privacyMode={privacyMode}
         onPrivacyToggle={() => {
-          setPrivacyMode((prev) => !prev);
+          setPrivacyMode(!privacyMode);
           notify(`Privacy mode ${privacyMode ? 'paused' : 'enabled'}`);
         }}
         darkMode={darkMode}
@@ -252,7 +358,7 @@ export default function Help() {
         onClose={() => setMobileSidebar(false)}
         activeNav={activeNav}
         onNavigate={selectNav}
-        onPrivacyToggle={() => setPrivacyMode((prev) => !prev)}
+        onPrivacyToggle={() => setPrivacyMode(!privacyMode)}
         onLogout={() => setModal('logout')}
       />
 
@@ -267,9 +373,10 @@ export default function Help() {
               <Compass size={13} />
               <span>DocuMend Knowledge Base</span>
             </div>
-            <h1>Help, Guides & Technical Manual</h1>
+            <h1>How DocuMend works</h1>
             <p>
-              Master the ODIE WASM engine, configure zero-knowledge vaults, and calibrate real-time gap analysis.
+              Short answers to the things people actually ask, and a plain note wherever
+              something is not built yet.
             </p>
 
             {/* Prominent Search Bar */}
@@ -277,7 +384,7 @@ export default function Help() {
               <Search size={18} className="help-search-icon" />
               <input
                 type="text"
-                placeholder="Search help articles, engine specs, shortcuts (e.g. contradiction, WASM, CrossRef)..."
+                placeholder="Search help — try saving, import, privacy, plans…"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
@@ -306,9 +413,9 @@ export default function Help() {
                 <Cpu size={22} />
               </div>
               <div className="help-quick-card-body">
-                <span className="help-quick-tag">Core Engine</span>
-                <h3>Understanding Contradiction Detection</h3>
-                <p>Learn how local WASM scans semantic assertions with zero cloud latency.</p>
+                <span className="help-quick-tag">Start here</span>
+                <h3>Making your first document</h3>
+                <p>Create one, or open a Word or PDF file you already have.</p>
               </div>
               <span className="help-quick-arrow">
                 Read Guide <ArrowRight size={13} />
@@ -318,16 +425,16 @@ export default function Help() {
             <div
               className="help-quick-card help-quick-card-gold"
               onClick={() => {
-                setSelectedArticle(helpSections[1].articles[0]);
+                setSelectedArticle(helpSections[1].articles[0]); // the checks
               }}
             >
               <div className="help-quick-card-icon">
                 <Lock size={22} />
               </div>
               <div className="help-quick-card-body">
-                <span className="help-quick-tag">Privacy First</span>
-                <h3>Client-Side AES Encryption</h3>
-                <p>How documents stay encrypted on disk and never train external models.</p>
+                <span className="help-quick-tag">The checks</span>
+                <h3>What DocuMend checks for</h3>
+                <p>Eight things, all of them found on your own computer.</p>
               </div>
               <span className="help-quick-arrow">
                 Read Guide <ArrowRight size={13} />
@@ -337,16 +444,16 @@ export default function Help() {
             <div
               className="help-quick-card help-quick-card-blue"
               onClick={() => {
-                setSelectedArticle(helpSections[2].articles[0]);
+                setSelectedArticle(helpSections[2].articles[0]); // where your work lives
               }}
             >
               <div className="help-quick-card-icon">
                 <BookOpen size={22} />
               </div>
               <div className="help-quick-card-body">
-                <span className="help-quick-tag">Academic Citations</span>
-                <h3>CrossRef & Semantic Scholar</h3>
-                <p>Automated DOI validation and instant APA to IEEE citation format conversion.</p>
+                <span className="help-quick-tag">Privacy</span>
+                <h3>What is stored, and where</h3>
+                <p>Your text stays in this browser. The server only learns a title and a date.</p>
               </div>
               <span className="help-quick-arrow">
                 Read Guide <ArrowRight size={13} />
@@ -498,9 +605,12 @@ export default function Help() {
               <p>{selectedArticle.content}</p>
             </div>
 
+            {/* "Validated by DocuMend ODIE Local Specification v2.4" used to
+                sit here. There is no such specification and nothing validated
+                these articles. This says something true instead. */}
             <div className="help-drawer-verified-box">
               <ShieldCheck size={16} />
-              <span>Validated by DocuMend ODIE Local Specification v2.4</span>
+              <span>Everything described here runs on your own computer.</span>
             </div>
 
             <div className="help-drawer-footer">

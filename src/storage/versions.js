@@ -10,9 +10,12 @@
  */
 import { db, newId } from './db';
 import { getDocument, updateDocument } from './documents';
+// How many automatic versions to keep per document is a plan limit now:
+// 10 on Basic, 50 on Premium, 200 on Enterprise. Versions a writer saved by
+// hand are never pruned, whatever the plan.
+import { autoVersionsKept } from '../plans/limits';
 
 const AUTO_EVERY_MS = 10 * 60 * 1000; // at most one auto version per 10 minutes
-const AUTO_KEEP = 50; // newest auto versions kept per document; manual ones are never pruned
 
 /** Newest first. */
 export async function listVersions(docId) {
@@ -69,10 +72,10 @@ export function deleteVersion(id) {
   return db.versions.delete(id);
 }
 
-/** Keeps only the newest AUTO_KEEP auto versions of one document. */
+/** Keeps only the newest autoVersionsKept() auto versions of one document. */
 async function pruneAutoVersions(docId) {
   const autos = (await listVersions(docId)).filter((v) => v.kind === 'auto');
-  const extra = autos.slice(AUTO_KEEP).map((v) => v.id);
+  const extra = autos.slice(autoVersionsKept()).map((v) => v.id);
   if (extra.length) await db.versions.bulkDelete(extra);
 }
 

@@ -14,12 +14,16 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildTextMap, highlightClass, serializeOutline, toRange } from './textmap';
+import { checkIdOf } from './checks';
+import { usePreference } from '../settings/preferences';
 
 /** How long to wait after the last keystroke before analysing again. */
 const IDLE_MS = 1200;
 
 export function useEngine(editor, { enabled = true, docId = null, kind = 'Other' } = {}) {
   const [status, setStatus] = useState('starting');
+  // Checks the reader switched off on the Settings page.
+  const [mutedChecks] = usePreference('mutedChecks');
   const [engineName, setEngineName] = useState(null);
   const [issues, setIssues] = useState([]);
   const [stats, setStats] = useState(null);
@@ -115,9 +119,18 @@ export function useEngine(editor, { enabled = true, docId = null, kind = 'Other'
   useEffect(() => () => window.clearTimeout(timerRef.current), []);
 
   // ---- what the page sees --------------------------------------------------
+  /**
+   * Two things hide an issue: "Ignore" on the card (this session only), and a
+   * check switched off in Settings (for good, on this device). The engine
+   * still finds them; the writer has said they do not want to be told.
+   */
   const openIssues = useMemo(
-    () => issues.filter((issue) => !dismissed[issue.id]),
-    [issues, dismissed],
+    () => issues.filter((issue) => {
+      if (dismissed[issue.id]) return false;
+      const check = checkIdOf(issue);
+      return !(check && mutedChecks.includes(check));
+    }),
+    [issues, dismissed, mutedChecks],
   );
 
   const counts = useMemo(() => ({
