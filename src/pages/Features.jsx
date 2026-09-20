@@ -81,7 +81,7 @@ const otherCapabilities = [
   {
     id: 'import',
     title: 'Open what you already have',
-    description: 'Word (.docx), PDF, plain text and Markdown files become editable documents, converted in your own browser.',
+    description: 'Word (.docx), plain text and Markdown files become editable documents, converted in your own browser. A PDF has no headings inside it, so save it as .docx first.',
     group: 'Writing',
     status: 'now',
     where: 'Upload, or drop a file on the dashboard',

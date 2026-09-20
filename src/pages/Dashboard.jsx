@@ -322,7 +322,7 @@ function Dashboard() {
     }
   };
 
-  /** A file dropped on "Upload / drop" becomes a new document (.docx, .pdf, .txt, .md). */
+  /** A file dropped on "Upload / drop" becomes a new document (.docx, .txt, .md). */
   const handleFiles = async (files) => {
     const file = files?.[0];
     if (!file) return;
@@ -483,7 +483,7 @@ function Dashboard() {
             {loading ? null : documents.length === 0 ? (
               <div className="dash-empty">
                 <FileText size={22} />
-                <p>No documents yet. Create one, or drop a Word, PDF or text file on "Upload / drop".</p>
+                <p>No documents yet. Create one, or drop a Word, text or Markdown file on "Upload / drop".</p>
                 <button type="button" onClick={openNewDocument}>Create a document</button>
               </div>
             ) : filteredDocuments.length > 0 ? (

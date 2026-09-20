@@ -536,7 +536,7 @@ function Editor() {
     announce('Comment added to the document');
   };
 
-  /** Imports a .docx / .pdf / .txt / .md file as a new document and opens it. */
+  /** Imports a .docx / .txt / .md file as a new document and opens it. */
   const handleOpenFile = async (files) => {
     const file = files?.[0];
     if (!file || importing) return;

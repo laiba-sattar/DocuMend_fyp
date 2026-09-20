@@ -31,7 +31,7 @@ export function buildExtensions({ onHighlightClick } = {}) {
     TaskList,
     TaskItem.configure({ nested: true }),
     TableKit.configure({ table: { resizable: false } }),
-    Placeholder.configure({ placeholder: 'Start writing, or open a Word, PDF or text file from the File menu…' }),
+    Placeholder.configure({ placeholder: 'Start writing, or open a Word, text or Markdown file from the File menu…' }),
     ParagraphFormat, // indent, line spacing, borders, Title/Subtitle/No Spacing styles
     DocumentHighlights.configure({ onHighlightClick }),
   ];

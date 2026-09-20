@@ -174,15 +174,79 @@
 
 /* The whole card is one button so the entire surface is clickable and
    keyboard-focusable, like the dashboard's rows. */
+/* The card is a container now, not a button: Copy and Delete live inside it,
+   and a button cannot contain a button. The whole reading area is still one
+   click, it just belongs to the inner button. */
 .docs-card {
+  position: relative;
   display: flex;
   flex-direction: column;
-  padding: 12px;
   border: 1px solid var(--dash-line);
   border-radius: 18px;
   background: var(--dash-card);
   text-align: left;
+}
+
+.docs-card-open {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  width: 100%;
+  padding: 12px;
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
+}
+.docs-card-open:focus-visible { outline: 2px solid var(--dash-sage, #6f9c85); outline-offset: -2px; }
+
+/* Out of the way until wanted. Always visible on touch, where there is no
+   hover to discover them with, and whenever one has keyboard focus. */
+.docs-card-actions {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity .15s ease;
+}
+.docs-card:hover .docs-card-actions,
+.docs-card:focus-within .docs-card-actions { opacity: 1; }
+
+@media (hover: none) {
+  .docs-card-actions { opacity: 1; }
+}
+
+.docs-card-action {
+  display: flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0, 0, 0, .08);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, .92);
+  color: #4d5a53;
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+}
+.docs-card-action:hover { background: #fff; color: #1f2a26; }
+.docs-card-action.is-danger:hover { background: #fdecea; color: #a4362f; border-color: #f0c9c3; }
+.docs-card-action:focus-visible { outline: 2px solid var(--dash-sage, #6f9c85); outline-offset: 2px; }
+
+.dash-dark .docs-card-action {
+  border-color: rgba(255, 255, 255, .12);
+  background: rgba(22, 30, 26, .92);
+  color: #c3d3ca;
+}
+.dash-dark .docs-card-action:hover { background: #1d2723; color: #e9eae6; }
+
+@media (prefers-reduced-motion: reduce) {
+  .docs-card-actions { transition: none; }
 }
 
 /* Tinted preview banner standing in for a page thumbnail. */

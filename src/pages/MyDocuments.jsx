@@ -23,12 +23,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import './my-documents.css';
 import {
+  Copy,
   FileText,
   Laptop,
   LockKeyhole,
   Pencil,
   Plus,
   Search,
+  Trash2,
   TriangleAlert,
   UserRound,
 } from 'lucide-react';
@@ -44,7 +46,7 @@ import { useTheme } from '../components/ThemeContext';
 import { navigate } from '../router';
 import { usePreference } from '../settings/preferences';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { createDocument, listDocuments } from '../storage/documents';
+import { createDocument, deleteDocument, duplicateDocument, listDocuments } from '../storage/documents';
 import { listRemote } from '../sync/metadata';
 import { formatModified, pageLabel, pagesFor } from '../storage/format';
 
@@ -94,37 +96,67 @@ function toElsewhereCard(row) {
    Pieces
    ========================================================================== */
 
-function DocumentCard({ doc, onOpen }) {
+/**
+ * One document.
+ *
+ * The card used to be a single <button>, which meant no control could ever sit
+ * inside it — a button cannot contain a button. So the clickable area is its
+ * own button now, and Copy and Delete sit beside it. They stay out of the way
+ * until the card is hovered or focused, and they are never offered for a
+ * document that lives on another computer: this browser cannot reach its text.
+ */
+function DocumentCard({ doc, onOpen, onDuplicate, onDelete }) {
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className={`docs-card dash-lift${doc.elsewhere ? ' docs-card-elsewhere' : ''}`}
-    >
-      <span className={`docs-preview docs-preview-${doc.tint}`}>
-        <span className="docs-preview-lines" aria-hidden="true">
-          <span /><span /><span />
-        </span>
-        <span className="docs-preview-icon"><FileText size={22} strokeWidth={2} /></span>
-        <span className="docs-preview-type">{doc.type}</span>
-        {doc.elsewhere && (
-          <span className="docs-preview-badge">
-            <Laptop size={12} strokeWidth={2} /> Another device
+    <article className={`docs-card dash-lift${doc.elsewhere ? ' docs-card-elsewhere' : ''}`}>
+      <button type="button" onClick={onOpen} className="docs-card-open">
+        <span className={`docs-preview docs-preview-${doc.tint}`}>
+          <span className="docs-preview-lines" aria-hidden="true">
+            <span /><span /><span />
           </span>
-        )}
-      </span>
-      <span className="docs-card-body">
-        <span className="docs-card-title dash-serif">{doc.title}</span>
-        <span className="docs-card-meta">
-          {doc.elsewhere ? 'Last edited' : 'Modified'} {doc.modified} · {pageLabel(doc.pages)}
+          <span className="docs-preview-icon"><FileText size={22} strokeWidth={2} /></span>
+          <span className="docs-preview-type">{doc.type}</span>
+          {doc.elsewhere && (
+            <span className="docs-preview-badge">
+              <Laptop size={12} strokeWidth={2} /> Another device
+            </span>
+          )}
         </span>
-        <span className="docs-tags">
-          {doc.tags.map((tag) => (
-            <span key={tag.label} className={`docs-tag docs-tag-${tag.tone}`}>{tag.label}</span>
-          ))}
+        <span className="docs-card-body">
+          <span className="docs-card-title dash-serif">{doc.title}</span>
+          <span className="docs-card-meta">
+            {doc.elsewhere ? 'Last edited' : 'Modified'} {doc.modified} · {pageLabel(doc.pages)}
+          </span>
+          <span className="docs-tags">
+            {doc.tags.map((tag) => (
+              <span key={tag.label} className={`docs-tag docs-tag-${tag.tone}`}>{tag.label}</span>
+            ))}
+          </span>
         </span>
-      </span>
-    </button>
+      </button>
+
+      {!doc.elsewhere && (
+        <div className="docs-card-actions">
+          <button
+            type="button"
+            className="docs-card-action"
+            onClick={() => onDuplicate(doc)}
+            title={`Make a copy of “${doc.title}”`}
+            aria-label={`Make a copy of ${doc.title}`}
+          >
+            <Copy size={15} strokeWidth={1.9} />
+          </button>
+          <button
+            type="button"
+            className="docs-card-action is-danger"
+            onClick={() => onDelete(doc)}
+            title={`Delete “${doc.title}”`}
+            aria-label={`Delete ${doc.title}`}
+          >
+            <Trash2 size={15} strokeWidth={1.9} />
+          </button>
+        </div>
+      )}
+    </article>
   );
 }
 
@@ -191,6 +223,37 @@ function MyDocuments() {
   }, [documents, search, activeCategory]);
 
   const announce = (message) => setToast(message);
+
+  /** Copy a document. The plan's limit applies, so it can be refused. */
+  const copyDocument = async (doc) => {
+    try {
+      const copy = await duplicateDocument(doc.id);
+      announce(`Copied as “${copy.title}”.`);
+    } catch (error) {
+      announce(error?.code === 'plan_limit'
+        ? error.message
+        : 'That document could not be copied.');
+    }
+  };
+
+  /**
+   * Delete a document. It asks first and names the document, because this
+   * cannot be undone: the text lives in this browser and nowhere else, so
+   * there is no copy on a server to fetch back.
+   */
+  const removeDocument = async (doc) => {
+    const sure = window.confirm(
+      `Delete “${doc.title}” and its saved versions?\n\n`
+      + 'The text is stored in this browser only, so this cannot be undone.',
+    );
+    if (!sure) return;
+    try {
+      await deleteDocument(doc.id);
+      announce(`“${doc.title}” was deleted.`);
+    } catch (error) {
+      announce('That document could not be deleted.');
+    }
+  };
 
   const selectNav = (label) => {
     const route = workspaceRoutes[label];
@@ -357,6 +420,8 @@ function MyDocuments() {
                 <DocumentCard
                   key={doc.id}
                   doc={doc}
+                  onDuplicate={copyDocument}
+                  onDelete={removeDocument}
                   onOpen={() => {
                     // A document that is only on the account cannot be opened
                     // here: the server has its name, never its words.

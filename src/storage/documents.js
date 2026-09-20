@@ -67,6 +67,51 @@ export async function updateDocument(id, changes) {
   return result;
 }
 
+/**
+ * Makes a copy of a document, content and all.
+ *
+ * The copy is a new document in every way that matters: its own id, its own
+ * version history, its own row in the account's list. Only the words are
+ * shared, and only as they stand right now — editing the copy never touches
+ * the original. The plan's document limit applies, because a copy takes a
+ * slot like anything else.
+ */
+export async function duplicateDocument(id) {
+  const original = await db.documents.get(id);
+  if (!original) throw new Error('That document is no longer here.');
+
+  const title = await nextCopyTitle(original.title);
+  const copy = await createDocument({
+    title,
+    type: original.type,
+    folderId: original.folderId,
+    checks: original.checks ?? [],
+  });
+  await updateDocument(copy.id, {
+    content: original.content ?? '',
+    wordCount: original.wordCount ?? 0,
+    format: original.format ?? 'DOCX',
+    tint: original.tint,
+  });
+  return { ...copy, title };
+}
+
+/**
+ * "Chapter one" → "Chapter one (copy)" → "Chapter one (copy 2)".
+ *
+ * It looks at the titles already in use, so copying the same document twice
+ * gives two documents you can tell apart. Copying a copy starts from the
+ * original's name rather than stacking "(copy) (copy)".
+ */
+async function nextCopyTitle(title) {
+  const base = (title ?? 'Untitled').replace(/\s*\(copy(?: \d+)?\)$/i, '').trim() || 'Untitled';
+  const taken = new Set((await db.documents.toArray()).map((doc) => doc.title));
+  if (!taken.has(`${base} (copy)`)) return `${base} (copy)`;
+  let number = 2;
+  while (taken.has(`${base} (copy ${number})`)) number += 1;
+  return `${base} (copy ${number})`;
+}
+
 /** Removes the document and all of its saved versions together. */
 export async function deleteDocument(id) {
   await db.transaction('rw', db.documents, db.versions, async () => {

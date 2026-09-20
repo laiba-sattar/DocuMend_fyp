@@ -74,7 +74,7 @@ const helpSections = [
         time: '2 min read',
         tag: 'Basics',
         content:
-          'Word (.docx), PDF, plain text and Markdown files can all be opened. Use "Upload / drop" on the dashboard, or drag the file straight onto that tile. The file is converted inside your browser — it is not uploaded anywhere — and becomes an ordinary DocuMend document you can edit.',
+          'Word (.docx), plain text and Markdown files can be opened. Use "Upload / drop" on the dashboard, or drag the file straight onto that tile. The file is converted inside your browser — it is not uploaded anywhere — and becomes an ordinary DocuMend document you can edit. PDFs are not accepted: a PDF stores characters and positions, not headings and paragraphs, so its structure could only be guessed, and structure is the thing DocuMend checks. Open the PDF in Word, save it as .docx, and import that.',
       },
       {
         id: 'saving',
@@ -415,7 +415,7 @@ export default function Help() {
               <div className="help-quick-card-body">
                 <span className="help-quick-tag">Start here</span>
                 <h3>Making your first document</h3>
-                <p>Create one, or open a Word or PDF file you already have.</p>
+                <p>Create one, or open a Word or text file you already have.</p>
               </div>
               <span className="help-quick-arrow">
                 Read Guide <ArrowRight size={13} />

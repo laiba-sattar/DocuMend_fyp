@@ -110,7 +110,7 @@ const faqs = [
   },
   {
     question: 'What file formats does it support?',
-    answer: 'Import and edit docx, pdf, and .txt files. DocuMend handles the conversion and keeps everything encrypted locally. Export back to your preferred format anytime.',
+    answer: 'Import and edit .docx, .txt and .md files. DocuMend handles the conversion and keeps everything encrypted locally. Export back to your preferred format anytime.',
   },
   {
     question: 'Can I work offline?',

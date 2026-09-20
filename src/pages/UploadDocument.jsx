@@ -16,7 +16,7 @@
  *      follows the workspace theme and flips to dark mode with the shell.
  *
  * Importing is real: src/editor/importers.js converts the file's text
- * (.docx, .pdf, .txt, .md) on this device and it is saved as a new document
+ * (.docx, .txt, .md) on this device and it is saved as a new document
  * in IndexedDB. The original file's bytes are never stored or uploaded --
  * that is the privacy promise the dialog makes, so keep it that way.
  * The recent-imports list keeps metadata (name, type, size, date, document
@@ -31,7 +31,6 @@ import {
   Check,
   ChevronRight,
   CircleHelp,
-  FileArchive,
   FileText,
   FolderOpen,
   Gauge,
@@ -126,7 +125,7 @@ function FileGlyph({ type, color }) {
       style={{ color, borderColor: `${color}66`, backgroundColor: `${color}13` }}
       aria-hidden="true"
     >
-      {type === 'PDF' ? <FileArchive size={19} strokeWidth={1.6} /> : <FileText size={19} strokeWidth={1.6} />}
+      <FileText size={19} strokeWidth={1.6} />
     </span>
   );
 }
@@ -207,7 +206,7 @@ export default function UploadDocument() {
   const acceptFile = (candidate) => {
     if (!candidate) return;
     if (!ACCEPTED_EXTENSIONS.test(candidate.name)) {
-      showNotice('That file type is not supported. Choose a DOCX, PDF, TXT or MD file (save old .doc or .rtf files as .docx first).', 'error');
+      showNotice('That file type is not supported. Choose a DOCX, TXT or MD file (save a PDF, .doc or .rtf as .docx first).', 'error');
       return;
     }
     if (candidate.size > MAX_FILE_BYTES) {
@@ -275,7 +274,10 @@ export default function UploadDocument() {
       });
       setProgress(100);
       setStage('success');
-      showNotice(`Imported ${imported.wordCount.toLocaleString()} words. The original file was not changed.`, 'success');
+      showNotice(
+        `Imported ${imported.wordCount.toLocaleString()} words. The original file was not changed.`,
+        'success',
+      );
     } catch (error) {
       if (token !== importToken.current) return;
       setStage('idle');
@@ -531,10 +533,18 @@ export default function UploadDocument() {
                             or <strong>browse from this device</strong>
                           </p>
                           <div className="upload-format-list" aria-label="Accepted file types">
-                            {['DOCX', 'PDF', 'TXT', 'MD'].map((format) => (
+                            {['DOCX', 'TXT', 'MD'].map((format) => (
                               <span className="upload-format-chip" key={format}>{format}</span>
                             ))}
                           </div>
+                          {/* PDF import was removed on purpose: a PDF stores
+                              characters and positions, not paragraphs and
+                              headings, so its structure could only ever be
+                              guessed — and this editor is built on structure. */}
+                          <p className="upload-format-note">
+                            Have a PDF? Open it in Word and save it as .docx first — that
+                            keeps the real headings, which is what DocuMend checks.
+                          </p>
                         </>
                       )}
                     </div>
@@ -650,13 +660,7 @@ export default function UploadDocument() {
                       >
                         <FileGlyph
                           type={document.type}
-                          color={
-                            document.type === 'TXT'
-                              ? '#719783'
-                              : document.type === 'PDF'
-                                ? '#a46b61'
-                                : '#c88753'
-                          }
+                          color={document.type === 'TXT' ? '#719783' : '#c88753'}
                         />
                         <span className="upload-recent-copy">
                           <span className="upload-recent-name">{document.name}</span>
@@ -761,7 +765,7 @@ export default function UploadDocument() {
                   untouched.
                 </p>
                 <ul className="upload-dialog-list">
-                  <li><Check size={16} /> DOCX, PDF, TXT and MD files up to 20 MB.</li>
+                  <li><Check size={16} /> DOCX, TXT and MD files up to 20 MB.</li>
                   <li><Check size={16} /> Import progress is simulated locally for this prototype.</li>
                   <li><Check size={16} /> Recent documents are metadata reminders, not saved files.</li>
                 </ul>
