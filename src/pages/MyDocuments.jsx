@@ -23,6 +23,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import './my-documents.css';
 import {
+  CheckCircle2,
   Copy,
   FileText,
   Laptop,
@@ -45,7 +46,7 @@ import { useTheme } from '../components/ThemeContext';
 import { navigate } from '../router';
 import { usePreference } from '../settings/preferences';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { createDocument, deleteDocument, duplicateDocument, listDocuments } from '../storage/documents';
+import { createDocument, deleteDocument, duplicateDocument, listDocuments, setDocumentStatus } from '../storage/documents';
 import { listRemote } from '../sync/metadata';
 import { formatModified, pageLabel, pagesFor } from '../storage/format';
 
@@ -91,6 +92,7 @@ function toCard(doc) {
   return {
     ...doc,
     type: doc.format ?? 'DOCX',
+    done: doc.status === 'done',
     modified: formatModified(doc.updatedAt),
     pages: pagesFor(doc.wordCount),
     tags: doc.tags ?? [{ label: doc.type, tone: 'info' }],
@@ -134,7 +136,7 @@ function toElsewhereCard(row) {
  * until the card is hovered or focused, and they are never offered for a
  * document that lives on another computer: this browser cannot reach its text.
  */
-function DocumentCard({ doc, onOpen, onDuplicate, onDelete }) {
+function DocumentCard({ doc, onOpen, onDuplicate, onDelete, onToggleDone }) {
   return (
     <article className={`docs-card dash-lift${doc.elsewhere ? ' docs-card-elsewhere' : ''}`}>
       <button type="button" onClick={onOpen} className="docs-card-open">
@@ -144,6 +146,11 @@ function DocumentCard({ doc, onOpen, onDuplicate, onDelete }) {
           </span>
           <span className="docs-preview-icon"><FileText size={22} strokeWidth={2} /></span>
           <span className="docs-preview-type">{doc.type}</span>
+          {doc.done && (
+            <span className="docs-preview-badge docs-preview-done">
+              <CheckCircle2 size={12} strokeWidth={2.2} /> Done
+            </span>
+          )}
           {doc.elsewhere && (
             <span className="docs-preview-badge">
               <Laptop size={12} strokeWidth={2} /> Another device
@@ -154,6 +161,18 @@ function DocumentCard({ doc, onOpen, onDuplicate, onDelete }) {
           <span className="docs-card-title dash-serif">{doc.title}</span>
           <span className="docs-card-meta">
             {doc.elsewhere ? 'Last edited' : 'Modified'} {doc.modified} · {pageLabel(doc.pages)}
+            {/* Only for documents the engine has read. Silence here means
+                "not checked", and that is the honest thing for it to mean. */}
+            {doc.issuesCheckedAt ? (
+              <>
+                {' · '}
+                <span className={doc.issueCount ? 'docs-card-issues' : 'docs-card-clear'}>
+                  {doc.issueCount
+                    ? `${doc.issueCount} ${doc.issueCount === 1 ? 'issue' : 'issues'}`
+                    : 'no issues'}
+                </span>
+              </>
+            ) : null}
           </span>
           <span className="docs-tags">
             {doc.tags.map((tag) => (
@@ -165,6 +184,20 @@ function DocumentCard({ doc, onOpen, onDuplicate, onDelete }) {
 
       {!doc.elsewhere && (
         <div className="docs-card-actions">
+          {/* Finishing a document had no control anywhere in the app, so the
+              dashboard counted finished documents by reading a field nothing
+              could write. It can be set from the editor and from here — this
+              is the screen that shows how many drafts are in progress. */}
+          <button
+            type="button"
+            className={`docs-card-action ${doc.done ? 'is-done' : ''}`}
+            onClick={() => onToggleDone(doc)}
+            title={doc.done ? `Put “${doc.title}” back in progress` : `Mark “${doc.title}” as done`}
+            aria-pressed={doc.done}
+            aria-label={doc.done ? `Put ${doc.title} back in progress` : `Mark ${doc.title} as done`}
+          >
+            <CheckCircle2 size={15} strokeWidth={1.9} />
+          </button>
           <button
             type="button"
             className="docs-card-action"
@@ -225,10 +258,27 @@ function MyDocuments() {
 
   const elsewhereCount = documents.filter((doc) => doc.elsewhere).length;
 
+  // Documents the engine has actually read. `issuesCheckedAt` is what separates
+  // "no problems" from "never opened"; without it both read zero.
+  const checkedDocuments = documents.filter((doc) => !doc.elsewhere && doc.issuesCheckedAt);
+
   const stats = [
     { icon: FileText, value: String(documents.length), label: 'Total Documents', tone: 'cream' },
     { icon: Pencil, value: String(documents.filter((doc) => doc.status === 'draft').length), label: 'Drafts in progress', tone: 'lavender' },
-    { icon: TriangleAlert, value: String(documents.reduce((sum, doc) => sum + (doc.issueCount ?? 0), 0)), label: 'Issues found', tone: 'peach' },
+    // This summed `issueCount`, a field nothing wrote, so it always read a
+    // confident nought. The editor records it now — but only for documents it
+    // has actually read, and a document nobody has opened is not a document
+    // with no problems. So the tile says which it is.
+    checkedDocuments.length
+      ? {
+        icon: TriangleAlert,
+        value: String(checkedDocuments.reduce((sum, doc) => sum + (doc.issueCount ?? 0), 0)),
+        label: checkedDocuments.length === documents.length
+          ? 'Issues found'
+          : `Issues in ${checkedDocuments.length} checked`,
+        tone: 'peach',
+      }
+      : { icon: TriangleAlert, value: '—', label: 'None checked yet', tone: 'peach' },
     // Switches to "AES-256 · All docs encrypted" once section S3 (encryption) is done.
     elsewhereCount > 0
       ? { icon: Laptop, value: String(elsewhereCount), label: 'On another device', tone: 'sky' }
@@ -270,6 +320,16 @@ function MyDocuments() {
       : `${documents.length} ${documents.length === 1 ? 'document' : 'documents'}`;
 
   const announce = (message) => setToast(message);
+
+  /** Finished, or back to work. The dashboard's counts read this. */
+  const toggleDone = async (doc) => {
+    try {
+      await setDocumentStatus(doc.id, doc.done ? 'draft' : 'done');
+      announce(doc.done ? `“${doc.title}” is back in progress.` : `“${doc.title}” marked as done.`);
+    } catch {
+      announce('That could not be saved.');
+    }
+  };
 
   /** Copy a document. The plan's limit applies, so it can be refused. */
   const copyDocument = async (doc) => {
@@ -456,6 +516,7 @@ function MyDocuments() {
                   doc={doc}
                   onDuplicate={copyDocument}
                   onDelete={removeDocument}
+                  onToggleDone={toggleDone}
                   onOpen={() => {
                     // A document that is only on the account cannot be opened
                     // here: the server has its name, never its words.

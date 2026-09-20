@@ -12,7 +12,6 @@ import {
   History,
   LockKeyhole,
   LogOut,
-  MoreHorizontal,
   Plus,
   RotateCcw,
   Search,
@@ -20,6 +19,7 @@ import {
   ShieldCheck,
   Sparkles,
   Star,
+  Trash2,
   User,
   X,
 } from "lucide-react";
@@ -29,14 +29,16 @@ import {
   Sidebar,
   WorkspaceModal,
 } from '../components/WorkspaceChrome';
+import { useAuth } from '../components/AuthContext';
 import { BrandMark } from '../components/BrandMark';
 import { workspaceRoutes } from '../components/workspace-nav';
 import { useTheme } from '../components/ThemeContext';
 import { navigate } from '../router';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { listDocuments } from '../storage/documents';
-import { createVersion, listVersions, restoreVersion } from '../storage/versions';
+import { createVersion, deleteVersion, listVersions, restoreVersion } from '../storage/versions';
 import { formatModified, pageLabel, pagesFor } from '../storage/format';
+import { formatBytes } from '../storage/quota';
 import { downloadText, paragraphsOf, sanitizeHtml } from '../storage/html';
 import "./version.css";
 
@@ -113,7 +115,7 @@ function VersionBadge({ type }) {
   );
 }
 
-function VersionCard({ version, compareSelected, onCompare, onPreview, onRestore, onDownload, onMore }) {
+function VersionCard({ version, compareSelected, onCompare, onPreview, onRestore, onDownload, onDelete }) {
   return (
     <article className={`history-version-card history-version-card-${version.tone} ${version.current ? "history-version-card-current" : ""}`}>
       <div className="history-version-marker" aria-hidden="true">
@@ -158,9 +160,24 @@ function VersionCard({ version, compareSelected, onCompare, onPreview, onRestore
               <Download size={12} />
               Download
             </button>
-            <button className="history-more-button" type="button" onClick={() => onMore(version)} aria-label={`More options for ${version.version}`}>
-              <MoreHorizontal size={15} />
-            </button>
+            {/* This was a "More options" button that opened no menu and
+                raised a toast saying more options were coming. Restore,
+                Preview, Download and Compare are already here, so the only
+                thing left that a version list genuinely needs is a way to
+                throw one away — and `deleteVersion` already existed in
+                storage. The current document is not a version and cannot be
+                deleted from here, so the button is not offered for it. */}
+            {!version.current && (
+              <button
+                className="history-more-button"
+                type="button"
+                onClick={() => onDelete(version)}
+                title={`Delete ${version.version}`}
+                aria-label={`Delete ${version.version}`}
+              >
+                <Trash2 size={14} />
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -246,6 +263,9 @@ export default function VersionHistory() {
   ];
   const selectedDocTitle = doc?.title ?? (storedDocuments?.length === 0 ? 'No documents yet' : 'Choose a document');
   const oldestVersion = storedVersions[storedVersions.length - 1];
+  // What this document's history actually costs on disk. JS strings are UTF-16,
+  // so two bytes a character — the same arithmetic the Storage page uses.
+  const versionsBytes = storedVersions.reduce((total, version) => total + (version.content?.length ?? 0) * 2, 0);
   const [activeFilter, setActiveFilter] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
   const [compareIds, setCompareIds] = useState([]);
@@ -263,6 +283,26 @@ export default function VersionHistory() {
 
   // Global Shared Theme Context
   const { darkMode, toggleDarkMode } = useTheme();
+
+  /**
+   * Whoever is actually signed in.
+   *
+   * This page used to name someone else. The avatar read "MA" and the dropdown
+   * read "Mahnoor / mahnooraslam@gmail.com" — three string literals left over
+   * from the prototype, shown to every single user because the page had never
+   * asked who was signed in. The same invented person was removed from
+   * Settings and survived here, which is the way this kind of thing usually
+   * goes: it is found on the screen nobody re-reads.
+   */
+  const { user } = useAuth();
+  const accountName = user?.name?.trim() || 'Your account';
+  const accountEmail = user?.email?.trim() || 'Signed in on this device';
+  const accountInitials = (user?.name?.trim() || '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0].toUpperCase())
+    .join('') || 'YOU';
 
   // Workspace Chrome Shell States
   const [activeNav, setActiveNav] = useState('Version history');
@@ -376,6 +416,32 @@ export default function VersionHistory() {
     notify(`${version.version} downloaded as a text file.`);
   };
 
+  /**
+   * Throws one saved version away.
+   *
+   * It asks first, and it says what cannot be undone, because nothing else on
+   * this page destroys anything: Restore keeps the old version, Download and
+   * Preview only read. The document itself is untouched either way — this
+   * removes a point in its history, not the writing.
+   */
+  const handleDelete = async (version) => {
+    const confirmed = window.confirm(
+      `Delete ${version.version}?\n\nThis removes that point in the history for good. `
+      + 'Your document, and every other version, stay exactly as they are.',
+    );
+    if (!confirmed) return;
+    try {
+      await deleteVersion(version.id);
+      // The list is a live query, so it redraws itself; nothing to update here.
+      setCompareIds((ids) => ids.filter((id) => id !== version.id));
+      if (previewVersion?.id === version.id) setPreviewVersion(null);
+      notify(`${version.version} deleted.`);
+    } catch (error) {
+      console.error(error);
+      notify('That version could not be deleted.');
+    }
+  };
+
   const selectNav = (label) => {
     const route = workspaceRoutes?.[label];
     if (route && label !== 'Version history') {
@@ -485,7 +551,17 @@ export default function VersionHistory() {
               </div>
 
               <div className="history-topbar-right">
-                <span className="history-local-status"><span /> All changes saved locally</span>
+                {/* "All changes saved locally" sat here unconditionally, saying
+                    the same thing whether anything had been saved or not — the
+                    shared header had this exact badge removed for that reason.
+                    This page does not save; it reads history. So it reports
+                    what it can actually see. */}
+                <span className="history-local-status">
+                  <span />
+                  {doc
+                    ? `${storedVersions.length} ${storedVersions.length === 1 ? 'version' : 'versions'} in this browser`
+                    : 'No document open'}
+                </span>
                 <button className="history-open-editor" type="button" onClick={() => navigate(selectedDocId ? `/editor?doc=${selectedDocId}` : '/editor')}>
                   Open editor
                   <ArrowLeft className="history-open-editor-arrow" size={14} />
@@ -497,16 +573,17 @@ export default function VersionHistory() {
                     type="button" 
                     className="history-avatar history-avatar-btn"
                     onClick={() => setProfileDropdownOpen((prev) => !prev)}
-                    aria-label="User Profile Menu"
+                    aria-label={`Account menu for ${accountName}`}
+                    title={accountName}
                   >
-                    MA
+                    {accountInitials}
                   </button>
 
                   {profileDropdownOpen && (
                     <div className="history-profile-dropdown-menu">
                       <div className="history-profile-info">
-                        <strong>Mahnoor</strong>
-                        <small>mahnooraslam@gmail.com</small>
+                        <strong>{accountName}</strong>
+                        <small>{accountEmail}</small>
                       </div>
                       <div className="history-dropdown-divider" />
                       <button 
@@ -557,7 +634,15 @@ export default function VersionHistory() {
                   <div className="history-document-chip">
                     <span className="history-document-chip-icon"><FileText size={15} /></span>
                     <span><strong>{selectedDocTitle}</strong><small>{doc ? `Last edited ${formatModified(doc.updatedAt)} · ${pageLabel(pagesFor(doc.wordCount))}` : 'Nothing to show yet'}</small></span>
-                    <span className="history-document-chip-state"><CheckCircle2 size={13} /> Saved locally</span>
+                    {/* Was a permanent "Saved locally" tick. The newest saved
+                        version is a real moment, and it is the thing someone
+                        standing on this page wants to know. */}
+                    <span className="history-document-chip-state">
+                      <CheckCircle2 size={13} />
+                      {storedVersions.length
+                        ? `Last saved ${formatModified(storedVersions[0].createdAt)}`
+                        : 'No versions saved yet'}
+                    </span>
                   </div>
                 </div>
                 <div className="history-stat-grid">
@@ -573,11 +658,16 @@ export default function VersionHistory() {
                     <span>Named snapshots</span>
                     <small>kept by you</small>
                   </div>
+                  {/* This tile read a literal "100%" beside two computed ones,
+                      which made a slogan look like a measurement. The space
+                      these versions take is a real number, and it is the one
+                      worth knowing: history is the part of a local-first app
+                      that quietly grows. */}
                   <div className="history-stat-card">
                     <span className="history-stat-icon"><ShieldCheck size={15} /></span>
-                    <strong>100%</strong>
-                    <span>Local history</span>
-                    <small>nothing uploaded</small>
+                    <strong>{formatBytes(versionsBytes)}</strong>
+                    <span>History size</span>
+                    <small>in this browser only</small>
                   </div>
                 </div>
               </section>
@@ -650,7 +740,7 @@ export default function VersionHistory() {
                         onPreview={setPreviewVersion}
                         onRestore={handleRestore}
                         onDownload={handleDownload}
-                        onMore={(item) => notify(`More options for ${item.version} are coming next.`)}
+                        onDelete={handleDelete}
                       />
                     ))}
                     {storedVersions.length === 0 && doc && (
@@ -669,9 +759,18 @@ export default function VersionHistory() {
                 )}
               </section>
 
+              {/* This said the history was "protected by your private
+                  workspace", which named a protection that does not exist —
+                  nothing here is encrypted yet — and the link beside it went
+                  nowhere. Both now say and do what is true. */}
               <footer className="history-footer">
-                <span><LockKeyhole size={13} /> Version history is stored locally and protected by your private workspace.</span>
-                <button type="button" onClick={() => notify("Privacy details are available in your workspace settings.")}>Learn about privacy <ArrowLeft size={12} className="history-footer-arrow" /></button>
+                <span>
+                  <LockKeyhole size={13} /> Every version stays in this browser and is never uploaded.
+                  It is not encrypted on disk yet.
+                </span>
+                <button type="button" onClick={() => navigate('/help')}>
+                  Read how your writing is stored <ArrowLeft size={12} className="history-footer-arrow" />
+                </button>
               </footer>
             </div>
 

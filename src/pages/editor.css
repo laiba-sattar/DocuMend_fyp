@@ -2269,3 +2269,32 @@ button.editor-outline-item.level-3 span { opacity: .65; }
 
 .editor-scan-kind select:disabled { opacity: .5; cursor: default; }
 .editor-scan-kind select:focus-visible { outline: 2px solid var(--dash-sage, #6f9c85); outline-offset: 1px; }
+
+/* ==========================================================================
+   Mark done
+
+   Sits in the topbar beside Export. Quiet until it is on, then it holds the
+   deep green, because "this one is finished" is worth seeing from across the
+   room — and because the dashboard's finished count is now reading it.
+   ========================================================================== */
+
+.editor-done-action.is-done {
+  border-color: rgba(33, 72, 59, .5);
+  background: #21483b;
+  color: #f3eee3;
+}
+
+.editor-done-action.is-done:hover {
+  background: #1a3b30;
+}
+
+.editor-done-action:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+.dash-dark .editor-done-action.is-done {
+  border-color: rgba(124, 170, 145, .55);
+  background: rgba(124, 170, 145, .22);
+  color: #d8ebdf;
+}

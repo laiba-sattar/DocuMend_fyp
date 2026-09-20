@@ -447,3 +447,65 @@
 @media (max-width: 640px) {
   .docs-tab-note { display: none; }
 }
+
+/* ==========================================================================
+   Finished documents
+
+   A document could never be finished before: `status` was written once as
+   'draft' and nothing in the app could write it again. Now that it can, a
+   finished document says so on its card, and the tick that sets it stays
+   visible rather than fading with the hover actions — it is a state, not a
+   command you have to go looking for.
+   ========================================================================== */
+
+.docs-preview-done {
+  background: rgba(33, 72, 59, .92);
+  color: #eaf3ec;
+}
+
+.dash-dark .docs-preview-done {
+  background: rgba(124, 170, 145, .22);
+  color: #cfe6d8;
+}
+
+.docs-card-action.is-done {
+  border-color: rgba(33, 72, 59, .4);
+  background: rgba(33, 72, 59, .1);
+  color: #21483b;
+}
+
+.docs-card-action.is-done:hover {
+  background: rgba(33, 72, 59, .18);
+}
+
+/* A card whose tick is on keeps it on screen even when the card is not
+   hovered, so the library reads at a glance. */
+.docs-card:not(:hover):not(:focus-within) .docs-card-actions:has(.is-done) { opacity: 1; }
+.docs-card:not(:hover):not(:focus-within) .docs-card-actions:has(.is-done) .docs-card-action:not(.is-done) { opacity: 0; }
+
+.dash-dark .docs-card-action.is-done {
+  border-color: rgba(124, 170, 145, .45);
+  background: rgba(124, 170, 145, .16);
+  color: #cfe6d8;
+}
+
+/* ==========================================================================
+   What the engine found, on the card
+
+   Shown only for documents the engine has actually read — a document nobody
+   has opened is not a document with no problems, and the card stays quiet
+   rather than guessing.
+   ========================================================================== */
+
+.docs-card-issues {
+  color: #c86f52;
+  font-weight: 700;
+}
+
+.docs-card-clear {
+  color: #6f9c85;
+  font-weight: 700;
+}
+
+.dash-dark .docs-card-issues { color: #e39679; }
+.dash-dark .docs-card-clear { color: #9ec9b1; }

@@ -100,6 +100,8 @@ import {
   createDocument as saveNewDocument,
   getDocument,
   listDocuments,
+  setDocumentIssues,
+  setDocumentStatus,
   setDocumentType,
   updateDocument,
 } from '../storage/documents';
@@ -226,6 +228,7 @@ function Editor() {
    */
   const currentRecord = (storedDocuments ?? []).find((doc) => doc.id === selectedId) ?? null;
   const documentKind = currentRecord?.type ?? 'Other';
+  const documentIsDone = currentRecord?.status === 'done';
 
   // One Tiptap editor for the page; documents are swapped into it with setContent.
   const editorOptions = useMemo(() => ({
@@ -650,6 +653,26 @@ function Editor() {
     }
   };
 
+  /**
+   * Marks the open document finished, or puts it back to work.
+   *
+   * There was no way to do this anywhere in the app, which is why the
+   * dashboard's finished count could only ever be zero.
+   */
+  const toggleDone = async () => {
+    if (!currentRecord) return;
+    const next = documentIsDone ? 'draft' : 'done';
+    try {
+      await setDocumentStatus(currentRecord.id, next);
+      announce(next === 'done'
+        ? `“${currentRecord.title}” marked as done. You can keep editing it — this only changes how it is counted.`
+        : `“${currentRecord.title}” is back in progress.`);
+    } catch (error) {
+      console.error(error);
+      announce('That could not be saved.');
+    }
+  };
+
   const changeDocument = async (id) => {
     if (id === selectedId) return;
     await saveNow(); // finish the current document before switching
@@ -699,6 +722,31 @@ function Editor() {
   };
 
   const issueCount = engine.counts.total;
+
+  /**
+   * Tells the record what the engine just found.
+   *
+   * My documents shows "Issues found" across the library, and the number came
+   * from `doc.issueCount` — a field nothing ever wrote. The editor has known
+   * this number all along; it simply never said so.
+   *
+   * Three guards, and each one earns its place. It waits for a finished
+   * analysis (`stats` present, not `analyzing`), because a document that has
+   * just been opened would otherwise be recorded as having no problems before
+   * it has been read. It waits for a ready engine, so a browser that cannot
+   * run the checks does not write nought over a real count from last time.
+   * And it only writes when the number has actually changed, because analysis
+   * runs about a second after every pause in typing.
+   */
+  useEffect(() => {
+    if (!currentRecord || engine.status !== 'ready') return;
+    if (engine.analyzing || !engine.stats) return;
+    if (currentRecord.issueCount === issueCount) return;
+    setDocumentIssues(currentRecord.id, issueCount, engine.counts).catch((error) => {
+      console.error('The issue count could not be saved', error);
+    });
+  }, [currentRecord, issueCount, engine.status, engine.analyzing, engine.stats]);
+
   const engineLabel = engine.status === 'ready'
     ? (engine.engineName === 'wasm' ? 'Engine ready' : 'Engine ready (JavaScript)')
     : engine.status === 'starting' ? 'Engine starting…' : 'Engine off';
@@ -771,6 +819,23 @@ function Editor() {
                 <button type="button" className="editor-top-icon-action" onMouseDown={(event) => event.preventDefault()} onClick={() => runCommand('redo')} aria-label="Redo" title="Redo (Ctrl+Y)"><Redo2 size={15} /></button>
                 <button type="button" className="editor-top-icon-action" onClick={() => navigate(selectedId ? `/version?doc=${selectedId}` : '/version')} aria-label="Version history" title="Version history"><History size={15} /></button>
                 <span className="editor-topbar-divider" />
+                {/* The one control the whole app was missing. Until this
+                    existed, `status` was written once as 'draft' and never
+                    again, so the dashboard's finished ring could only read 0%
+                    and its "Done" filter matched nothing, for ever. */}
+                <button
+                  type="button"
+                  className={`editor-top-action editor-done-action ${documentIsDone ? 'is-done' : ''}`}
+                  onClick={toggleDone}
+                  disabled={!currentRecord}
+                  aria-pressed={documentIsDone}
+                  title={documentIsDone
+                    ? 'Put this document back in progress'
+                    : 'Mark this document as done — it stays editable'}
+                >
+                  <CheckCircle2 size={15} />
+                  <span className="editor-hide-sm">{documentIsDone ? 'Done' : 'Mark done'}</span>
+                </button>
                 <button type="button" className="editor-top-action" onClick={() => handleExport('docx')} title="Download as a Word file"><Printer size={15} /><span className="editor-hide-sm">Export</span></button>
                 <button type="button" className="editor-top-action editor-share-action" onClick={() => navigate('/share')}><Share2 size={14} /><span className="editor-hide-sm">Share</span></button>
               </div>

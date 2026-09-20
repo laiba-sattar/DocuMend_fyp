@@ -11,9 +11,20 @@
    declares on `.dash-shell`, so dark mode themes this page for free.
    ========================================================================== */
 
-/* The progress ring's circumference is 2*pi*47 ~= 295; animating the dash
-   offset from full to 85.5 draws it to roughly 71%. */
-@keyframes dash-draw-ring { from { stroke-dashoffset: 295; } to { stroke-dashoffset: 85.5; } }
+/* The progress ring's circumference is 2*pi*47 ~= 295, so the dash offset runs
+   from 295 (empty) down to 0 (full).
+   
+   This animation used to end at a hardcoded 85.5 — the offset for exactly 71%,
+   left over from when the ring was a decoration pinned at that figure. Because
+   the animation fills forwards, its end value overrode the attribute React
+   wrote, so the ring drew 71% for ever while the number beside it said
+   something else entirely. The end value is now the element's own
+   --dash-ring-offset, set from the real percentage, so the drawing and the
+   number cannot disagree again. */
+@keyframes dash-draw-ring {
+  from { stroke-dashoffset: 295; }
+  to { stroke-dashoffset: var(--dash-ring-offset, 295); }
+}
 
 /* ==========================================================================
    Greeting
@@ -160,7 +171,12 @@
 .dash-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
 .dash-ring-track { stroke: #cad9ca; }
 .dash-dark .dash-ring-track { stroke: #2f4d40; }
-.dash-ring-fill { stroke: var(--dash-sage); animation: dash-draw-ring 1.1s ease-out .35s both; }
+.dash-ring-fill {
+  stroke: var(--dash-sage);
+  animation: dash-draw-ring 1.1s ease-out .35s both;
+  /* So marking a document done moves the ring rather than jumping it. */
+  transition: stroke-dashoffset .5s ease-out;
+}
 .dash-ring-centre {
   position: absolute;
   inset: 0;

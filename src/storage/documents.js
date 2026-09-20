@@ -108,6 +108,59 @@ export function setDocumentType(id, type) {
 }
 
 /**
+ * Records what the engine found, so the library can say it.
+ *
+ * `issueCount` was read by My documents and written by nobody: the editor knew
+ * the number and the record never heard it, so the "Issues found" tile summed
+ * a field that did not exist and showed a confident nought.
+ *
+ * `issuesCheckedAt` matters as much as the count. Without it there is no way
+ * to tell a document with no problems from one nobody has opened, and both
+ * would read "0 issues" — the same wrong answer the tile gave before, only
+ * better dressed.
+ *
+ * Like the status above, this does not touch `updatedAt`: being read is not
+ * being edited.
+ */
+export async function setDocumentIssues(id, count, kinds = {}) {
+  const result = await db.documents.update(id, {
+    issueCount: count,
+    // What kind of trouble, not just how much. The document picker has four
+    // badge designs — a contradiction is not a missing section — and without
+    // this it could only ever draw the fifth, "not checked yet".
+    issueKinds: {
+      contradiction: kinds.contradiction ?? 0,
+      redundancy: kinds.redundancy ?? 0,
+      structure: kinds.structure ?? 0,
+    },
+    issuesCheckedAt: Date.now(),
+  });
+  queueUpsert(id);
+  return result;
+}
+
+/**
+ * Marks a document finished, or puts it back to work.
+ *
+ * `status` was written once, as 'draft', and never written again, because
+ * nothing in the app could change it. Everything downstream was therefore
+ * pinned: the dashboard's "Documents finished" ring could only read 0%, its
+ * Filter had a "Done" stop that matched nothing, and "Drafts in progress"
+ * always equalled the total. Four numbers that looked computed — and were,
+ * from a field no hand could reach.
+ *
+ * Note what this does NOT do: bump `updatedAt`. Finishing a document is not
+ * editing it, and "Last edited 2 minutes ago" for a document you only ticked
+ * would be exactly the kind of small lie the rest of this work is removing.
+ * So the write goes straight to the row, and the account is told separately.
+ */
+export async function setDocumentStatus(id, status) {
+  const result = await db.documents.update(id, { status });
+  queueUpsert(id);
+  return result;
+}
+
+/**
  * Makes a copy of a document, content and all.
  *
  * The copy is a new document in every way that matters: its own id, its own

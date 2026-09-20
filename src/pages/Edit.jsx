@@ -44,9 +44,35 @@ const ICON_BY_TYPE = {
 
 const TONE_BY_TINT = { sage: 'mint', gold: 'gold', saffron: 'gold', coral: 'coral', lavender: 'amber', sky: 'amber' };
 
-/** A stored document, shaped for the cards below. Issue badges become real with the engine (S6). */
+/**
+ * What the engine found in this document, as one badge.
+ *
+ * Every card used to be a hardcoded "NOT CHECKED YET", which made the other
+ * four badge designs below unreachable — a whole health display that could
+ * only ever show one state, for a feature the page did not have. The editor
+ * records its findings on the document now (`setDocumentIssues`), so the
+ * badge can say which kind of trouble it is, and the worst kind wins:
+ * a sentence that contradicts another is a bigger problem than a missing
+ * heading, which is bigger than a repeated line.
+ */
+function healthOf(doc) {
+  if (!doc.issuesCheckedAt) {
+    return { status: 'unchecked', label: 'NOT CHECKED YET' };
+  }
+  const total = doc.issueCount ?? 0;
+  if (!total) return { status: 'clean', label: 'NO ISSUES' };
+
+  const kinds = doc.issueKinds ?? {};
+  const suffix = total === 1 ? '1 ISSUE' : `${total} ISSUES`;
+  if (kinds.contradiction) return { status: 'conflict', label: suffix };
+  if (kinds.structure) return { status: 'gap', label: suffix };
+  return { status: 'issues', label: suffix };
+}
+
+/** A stored document, shaped for the cards below. */
 function toCard(doc) {
   const words = doc.wordCount ?? 0;
+  const health = healthOf(doc);
   return {
     id: doc.id,
     name: doc.title,
@@ -54,9 +80,11 @@ function toCard(doc) {
     pages: pagesFor(words),
     modified: formatModified(doc.updatedAt),
     type: doc.format ?? 'DOCX',
-    status: 'unchecked',
-    statusLabel: 'NOT CHECKED YET',
-    statusDetail: `${words.toLocaleString()} words · ${doc.type ?? 'Other'}`,
+    status: health.status,
+    statusLabel: health.label,
+    statusDetail: doc.issuesCheckedAt
+      ? `${words.toLocaleString()} words · checked ${formatModified(doc.issuesCheckedAt)}`
+      : `${words.toLocaleString()} words · open it to run the checks`,
     icon: ICON_BY_TYPE[doc.type] ?? FileText,
     size: formatBytes(new Blob([doc.content ?? '']).size),
     tone: TONE_BY_TINT[doc.tint] ?? 'mint',

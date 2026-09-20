@@ -127,6 +127,9 @@ function ProjectSummary({ documents }) {
 
   const percent = total ? Math.round((done / total) * 100) : 0;
   const CIRCUMFERENCE = 295; // 2πr for r = 47
+  // How much of the ring stays undrawn. The stylesheet reads this too: its
+  // draw-in animation ends here, instead of at the 71% it used to be pinned to.
+  const ringOffset = CIRCUMFERENCE - (CIRCUMFERENCE * percent) / 100;
   const words = documents.reduce((sum, doc) => sum + doc.words, 0);
 
   const pad = (value) => String(value).padStart(2, '0');
@@ -148,9 +151,13 @@ function ProjectSummary({ documents }) {
             <circle className="dash-ring-track" cx="64" cy="64" r="47" fill="none" strokeWidth="12" />
             <circle
               className="dash-ring-fill"
-              cx="64" cy="64" r="47" fill="none" strokeWidth="12" strokeLinecap="round"
+              cx="64" cy="64" r="47" fill="none" strokeWidth="12"
+              // A round cap on a zero-length arc still paints a dot, which
+              // would put a mark on the ring at nought per cent.
+              strokeLinecap={percent > 0 ? 'round' : 'butt'}
               strokeDasharray={CIRCUMFERENCE}
-              strokeDashoffset={CIRCUMFERENCE - (CIRCUMFERENCE * percent) / 100}
+              strokeDashoffset={ringOffset}
+              style={{ '--dash-ring-offset': ringOffset }}
             />
           </svg>
           <div className="dash-ring-centre">

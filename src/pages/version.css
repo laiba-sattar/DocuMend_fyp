@@ -2066,3 +2066,26 @@ body:has(.dash-dark) {
 }
 .history-preview-body { display: grid; gap: 10px; }
 .history-preview-body p, .history-preview-body h2, .history-preview-body h3 { margin: 0; }
+
+/* ==========================================================================
+   Deleting one version
+
+   The button in this slot used to be "More options" and opened nothing. It
+   deletes a version now, so it turns red on hover — the only control on this
+   page that destroys anything should not look like the three beside it that
+   do not.
+   ========================================================================== */
+
+.history-version-actions .history-more-button:hover,
+.history-version-actions .history-more-button:focus-visible {
+  border-color: rgba(222, 106, 80, .45);
+  background: rgba(222, 106, 80, .1);
+  color: #c9543b;
+}
+
+.dash-dark .history-version-actions .history-more-button:hover,
+.dash-dark .history-version-actions .history-more-button:focus-visible {
+  border-color: rgba(230, 130, 105, .5) !important;
+  background: rgba(230, 130, 105, .16) !important;
+  color: #f0a892 !important;
+}
