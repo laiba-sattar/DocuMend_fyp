@@ -8,7 +8,6 @@ import {
   Command,
   Compass,
   Cpu,
-  ExternalLink,
   FileCheck,
   FileQuestion,
   FileText,
@@ -36,8 +35,23 @@ import {
 import { workspaceRoutes } from '../components/workspace-nav';
 import { useTheme } from '../components/ThemeContext';
 import { navigate } from '../router';
+
 import { usePreference } from '../settings/preferences';
 import './help.css';
+
+/**
+ * How long this article takes to read, from the article.
+ *
+ * Every one of these used to carry a typed "2 min read" — invented metadata,
+ * presented as though something had measured it, on text sitting right there
+ * in the same file waiting to be counted. 200 words a minute is the usual
+ * figure for ordinary prose.
+ */
+function readingTime(article) {
+  const words = (article?.content ?? '').split(/\s+/).filter(Boolean).length;
+  return `${Math.max(1, Math.round(words / 200))} min read`;
+}
+
 
 /**
  * Every article below describes something you can actually go and do.
@@ -63,7 +77,6 @@ const helpSections = [
       {
         id: 'first-document',
         title: 'Making your first document',
-        time: '2 min read',
         tag: 'Basics',
         content:
           'From the dashboard, choose "Create document". Give it a name and a type — Thesis, Research paper, Report, Legal or Other. The type matters: it tells the engine which sections this kind of document usually has, so it can tell you when one is missing. You can change the default type under Settings → Document types.',
@@ -71,7 +84,6 @@ const helpSections = [
       {
         id: 'import-file',
         title: 'Opening a file you already have',
-        time: '2 min read',
         tag: 'Basics',
         content:
           'Word (.docx), plain text and Markdown files can be opened. Use "Upload / drop" on the dashboard, or drag the file straight onto that tile. The file is converted inside your browser — it is not uploaded anywhere — and becomes an ordinary DocuMend document you can edit. PDFs are not accepted: a PDF stores characters and positions, not headings and paragraphs, so its structure could only be guessed, and structure is the thing DocuMend checks. Open the PDF in Word, save it as .docx, and import that.',
@@ -79,7 +91,6 @@ const helpSections = [
       {
         id: 'saving',
         title: 'How saving works',
-        time: '1 min read',
         tag: 'Basics',
         content:
           'There is no save button to remember. The editor saves to this browser a few seconds after you stop typing, and Ctrl+S saves immediately. The status bar at the bottom shows when it last saved.',
@@ -87,7 +98,6 @@ const helpSections = [
       {
         id: 'export',
         title: 'Getting your document back out',
-        time: '2 min read',
         tag: 'Basics',
         content:
           'Editor → Export offers Word (.docx) and plain text, and printing to PDF through your browser\u2019s print dialogue. Nothing you write is locked inside DocuMend.',
@@ -104,7 +114,6 @@ const helpSections = [
       {
         id: 'what-checks',
         title: 'What DocuMend checks for',
-        time: '3 min read',
         tag: 'Checks',
         content:
           'Eight things. Three are about what you have written: figures that disagree (40% in one place, 45% in another about the same thing), two sentences that contradict each other, and a sentence that repeats one you already wrote. Five are about shape: a section your kind of document usually has but yours does not, a heading under an unusual name, a heading with nothing under it, a jump from Heading 1 to Heading 3, and two sections with the same name. The full list with descriptions is on the Features page.',
@@ -112,7 +121,6 @@ const helpSections = [
       {
         id: 'where-issues',
         title: 'Where the findings appear',
-        time: '2 min read',
         tag: 'Workflow',
         content:
           'Open a document and turn on the Review panel from the editor toolbar. Findings are listed there, and the words they refer to are highlighted in the page. "Show me" jumps to the sentence. Where DocuMend can offer a fix, the card has a button that makes the change for you — for example, using the same figure in both places, or adding a missing heading in the right position with the numbering kept.',
@@ -120,7 +128,6 @@ const helpSections = [
       {
         id: 'turn-off-check',
         title: 'Turning a check off',
-        time: '1 min read',
         tag: 'Settings',
         content:
           'Settings → Checks & storage lists all eight with a switch each; the Features page has the same switches. Turning one off stops it appearing in the review panel on this computer, for good. "Ignore" on a single card is different: it hides that one finding until you reload.',
@@ -128,7 +135,6 @@ const helpSections = [
       {
         id: 'where-it-runs',
         title: 'Where the analysis happens',
-        time: '2 min read',
         tag: 'Architecture',
         content:
           'On your computer. The checks are written in Rust and compiled to WebAssembly, and they run in a background thread in this browser, so typing never stutters. If WebAssembly cannot load for any reason, an identical set of checks written in JavaScript runs instead — the status pill in the editor\u2019s footer says which one you have. Either way, no sentence of yours is sent anywhere to be analysed.',
@@ -145,7 +151,6 @@ const helpSections = [
       {
         id: 'what-is-stored',
         title: 'What is stored, and where',
-        time: '3 min read',
         tag: 'Privacy',
         content:
           'The text of your documents is stored in this browser, in IndexedDB, and nowhere else. When you are signed in, DocuMend tells the server a title, a type, a date and a word count for each document — never the text. The server refuses a request that contains document content outright, with an error, rather than quietly ignoring it. That is why a document created on another computer appears in your list with its name but cannot be opened here.',
@@ -153,7 +158,6 @@ const helpSections = [
       {
         id: 'no-encryption-yet',
         title: 'Is my document encrypted on disk?',
-        time: '2 min read',
         tag: 'Privacy',
         content:
           'Not yet, and it is worth being straight about it. Documents sit in this browser\u2019s own storage, protected by your computer\u2019s login and by the browser keeping sites apart, but they are not encrypted with a password of yours. Encryption — a password that unlocks the documents, with the key never leaving your device — is section S3 of the build plan and will come with encrypted sync (S9). Until then, treat this browser profile as you would a folder on your desktop.',
@@ -161,7 +165,6 @@ const helpSections = [
       {
         id: 'privacy-mode',
         title: 'Hiding titles from the person beside you',
-        time: '1 min read',
         tag: 'Privacy',
         content:
           'The Privacy mode switch in the sidebar blurs document titles in the dashboard and library until you point at one. It is for reading in a library or on a train. It does not encrypt anything, and it is remembered between visits.',
@@ -169,7 +172,6 @@ const helpSections = [
       {
         id: 'offline',
         title: 'Working without the internet',
-        time: '1 min read',
         tag: 'Offline',
         content:
           'Everything except signing in works offline: writing, importing, exporting, version history and all eight checks. Changes to your document list wait in a queue and go up the next time you are online.',
@@ -186,7 +188,6 @@ const helpSections = [
       {
         id: 'sign-in',
         title: 'Ways to sign in',
-        time: '2 min read',
         tag: 'Account',
         content:
           'With Google, with a one-time link sent to your email, or with an email address and password. They all reach the same account: if you sign up with a password and later use Google with the same address, it is still you. "Forgot password" sends the same one-time link and lands you on a page where you choose a new password.',
@@ -194,7 +195,6 @@ const helpSections = [
       {
         id: 'plan-limits',
         title: 'What the plans actually limit',
-        time: '2 min read',
         tag: 'Plans',
         content:
           'Basic keeps 10 documents and the last 10 automatic versions of each. Premium removes the document limit and keeps 50 automatic versions; Enterprise keeps 200. Versions you save by hand are never removed, on any plan. These numbers are enforced in the app, not decoration — the eleventh document on Basic is refused with a message saying why. Payments are not connected in this build, so no plan can be bought yet.',
@@ -202,7 +202,6 @@ const helpSections = [
       {
         id: 'sign-out-everywhere',
         title: 'Signing out of a computer you no longer have',
-        time: '1 min read',
         tag: 'Account',
         content:
           'Settings → Account → "Sign out everywhere" ends every session on every device, this one included. Changing your password does the same thing to every device except the one you changed it on.',
@@ -210,7 +209,6 @@ const helpSections = [
       {
         id: 'leaving',
         title: 'Erasing your work, or closing your account',
-        time: '2 min read',
         tag: 'Account',
         content:
           'Two separate buttons at the bottom of Settings → Account. "Erase the documents in this browser" removes the text and leaves the account. "Close your account" does both: the account, the document list on the server, and every document here. Neither can be undone, and neither can reach documents on your other computers — those you clear from those computers.',
@@ -227,7 +225,6 @@ const helpSections = [
       {
         id: 'citations-planned',
         title: 'Reference and citation checking',
-        time: '1 min read',
         tag: 'Planned',
         content:
           'Looking each reference up in CrossRef and Semantic Scholar, and repairing APA, MLA or IEEE formatting, is section S8 of the build plan. Nothing in this build reads your bibliography.',
@@ -235,7 +232,6 @@ const helpSections = [
       {
         id: 'sharing-planned',
         title: 'Sharing a document with someone',
-        time: '1 min read',
         tag: 'Planned',
         content:
           'Sharing, comments and a link a supervisor can open are section S9, and they depend on encryption (S3) coming first — sending a document anywhere before it can be encrypted would break the promise the rest of this page makes. For now, export to Word or PDF and send that.',
@@ -243,7 +239,6 @@ const helpSections = [
       {
         id: 'mobile-planned',
         title: 'A phone app',
-        time: '1 min read',
         tag: 'Planned',
         content:
           'An Android app built from this same workspace with Capacitor is section S10. The site works in a phone browser today, though the editor is happiest with a keyboard.',
@@ -506,7 +501,7 @@ export default function Help() {
                             <h4>{art.title}</h4>
                           </div>
                           <div className="help-article-actions">
-                            <span className="help-read-time">{art.time}</span>
+                            <span className="help-read-time">{readingTime(art)}</span>
                             <div className="help-row-arrow-circle">
                               <ArrowRight size={14} />
                             </div>
@@ -557,18 +552,24 @@ export default function Help() {
               <div className="help-support-icon">
                 <MessageSquare size={20} />
               </div>
+              {/* This offered "Explore Community Knowledge" with an
+                  external-link icon, and opened nothing — there is no
+                  community, no forum and no doc site to open. What does exist
+                  is the Settings page, where every check is named, described
+                  and switchable, which is where a question about the checks
+                  actually gets answered. */}
               <div>
-                <h4>Still need guidance on your manuscript?</h4>
-                <p>DocuMend’s local-first community documentation and research guides are constantly updated.</p>
+                <h4>Want to see exactly what is being checked?</h4>
+                <p>Settings lists all nine checks, what each one looks for, and the sections expected of every document type. You can switch any of them off.</p>
               </div>
             </div>
             <button
               type="button"
               className="help-support-btn"
-              onClick={() => notify('Community forum & docs opening locally')}
+              onClick={() => navigate('/settings')}
             >
-              <span>Explore Community Knowledge</span>
-              <ExternalLink size={14} />
+              <span>Open Settings</span>
+              <ArrowRight size={14} />
             </button>
           </footer>
         </div>
@@ -587,7 +588,7 @@ export default function Help() {
             <div className="help-drawer-top">
               <div className="help-drawer-tags">
                 <span className="help-drawer-tag-pill">{selectedArticle.tag}</span>
-                <span className="help-drawer-time">{selectedArticle.time}</span>
+                <span className="help-drawer-time">{readingTime(selectedArticle)}</span>
               </div>
               <button
                 type="button"

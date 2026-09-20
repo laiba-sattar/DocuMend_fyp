@@ -14,7 +14,12 @@ export const navPrimary = [
   { label: 'Dashboard', icon: FileText },
   { label: 'My documents', icon: FileText },
   { label: 'Editor', icon: FileText },
-  { label: 'Version history', icon: Clock, badge: '1' },
+  // This carried `badge: '1'` — the literal string, on every page, for every
+  // user, reading exactly like an unread count. There is nothing here to
+  // count: the sidebar has no document in hand, so it cannot know how many
+  // versions the one you are looking at has. A number that cannot be right is
+  // worse than no number.
+  { label: 'Version history', icon: Clock },
   { label: 'Subscription', icon: Sparkles },
 ];
 

@@ -20,6 +20,7 @@
 
 import { useState } from "react";
 import { useAuth } from "../components/AuthContext";
+import { rememberSession } from "../api/client";
 import { SocialSignIn } from "../components/SocialSignIn";
 // Lucide icons used across the UI
 import {
@@ -195,6 +196,9 @@ export default function LogIn() {
     setBusy(true);
     setMessage("");
     try {
+      // Before the token exists, so it is written to the right place first.
+      // This checkbox set a variable nothing read until now.
+      rememberSession(rememberMe);
       const account = await signIn({ email: form.email.trim(), password: form.password });
       setSubmitted(true);
       setMessage(`Welcome back, ${account.name.split(" ")[0]}. Opening your workspace…`);

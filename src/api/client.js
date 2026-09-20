@@ -23,16 +23,54 @@
 
 const BASE_URL = (import.meta.env?.VITE_API_URL ?? 'http://localhost:4000').replace(/\/$/, '');
 const REFRESH_KEY = 'documend.refreshToken';
+const SESSION_ONLY_KEY = 'documend.sessionOnly';
 
 let accessToken = null; // memory only: closing the tab forgets it
 
 /* ---------------------------------------------------------------------------
    The refresh token
+
+   Where it is kept is what the login page's "Remember me on this device"
+   decides. That checkbox used to set a variable nobody read, so the answer was
+   always localStorage and the box was decoration — which is a bad thing for a
+   box about a shared computer to be. Unticked now means sessionStorage, and
+   sessionStorage is emptied when the tab closes, so the session goes with it.
    ------------------------------------------------------------------------- */
+
+/** Has this tab been told not to remember the session? */
+function sessionOnly() {
+  try {
+    return window.sessionStorage.getItem(SESSION_ONLY_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Sets where the next token is kept. Call it before signing in.
+ *
+ * The flag itself lives in sessionStorage, so a page reload keeps the same
+ * answer and closing the tab forgets both the flag and the token together.
+ */
+export function rememberSession(remember) {
+  try {
+    if (remember) window.sessionStorage.removeItem(SESSION_ONLY_KEY);
+    else window.sessionStorage.setItem(SESSION_ONLY_KEY, '1');
+  } catch {
+    /* a private window may refuse; the default (remember) then applies */
+  }
+  // Anything already stored moves to the store the new answer names, so
+  // signing in again on a shared computer really does change where it lives.
+  const existing = readRefreshToken();
+  if (existing) writeRefreshToken(existing);
+}
 
 function readRefreshToken() {
   try {
-    return window.localStorage.getItem(REFRESH_KEY);
+    // sessionStorage first: it is the more private of the two, so a token
+    // there wins over a stale one left in localStorage.
+    return window.sessionStorage.getItem(REFRESH_KEY)
+      ?? window.localStorage.getItem(REFRESH_KEY);
   } catch {
     return null; // private windows can refuse storage
   }
@@ -40,8 +78,13 @@ function readRefreshToken() {
 
 function writeRefreshToken(token) {
   try {
-    if (token) window.localStorage.setItem(REFRESH_KEY, token);
-    else window.localStorage.removeItem(REFRESH_KEY);
+    const keep = sessionOnly() ? window.sessionStorage : window.localStorage;
+    const other = sessionOnly() ? window.localStorage : window.sessionStorage;
+    // Always clear the other one, or signing out of a remembered session
+    // could leave a usable token behind in the store nobody looked at.
+    other.removeItem(REFRESH_KEY);
+    if (token) keep.setItem(REFRESH_KEY, token);
+    else keep.removeItem(REFRESH_KEY);
   } catch {
     /* nothing we can do; the session just won't survive a reload */
   }

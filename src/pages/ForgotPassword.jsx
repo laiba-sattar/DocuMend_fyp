@@ -127,10 +127,15 @@ export default function ForgotPassword() {
             </p>
           </div>
 
+          {/* Three promises, and two of them used to be one promise too many.
+              "Asking for a new link retires the old one" is not something
+              Firebase does — earlier links stay usable until they expire — and
+              "your documents never leave this device" was true of the writing
+              and not of its name. Both now say what actually happens. */}
           <ul className="reset-assurances">
             <li><ShieldCheck size={15} /> The link expires shortly, and works once.</li>
-            <li><LockKeyhole size={15} /> Your documents never leave this device.</li>
-            <li><MailCheck size={15} /> Asking for a new link retires the old one.</li>
+            <li><LockKeyhole size={15} /> The text of your documents never leaves this device.</li>
+            <li><MailCheck size={15} /> Ask for another any time — every link sent still works until it expires.</li>
           </ul>
         </div>
 

@@ -462,10 +462,11 @@ export default function Pricing() {
             <aside className="pricing-promise-card" aria-label="DocuMend privacy promise">
               <div className="pricing-promise-orbit pricing-promise-orbit-one" aria-hidden="true" />
               <div className="pricing-promise-orbit pricing-promise-orbit-two" aria-hidden="true" />
-              <div className="pricing-promise-meta">
-                <span>DOCUMEND / 001</span>
-                <span><CheckCircle2 size={12} /> VERIFIED</span>
-              </div>
+              {/* A "DOCUMEND / 001 ✓ VERIFIED" certification stamp used to sit
+                  here, and a "signed with care" signature block below. Nothing
+                  verified or signed anything; they were the visual language of
+                  an audit this project has never had. The promise underneath is
+                  true on its own and does not need a badge to vouch for it. */}
               <div className="pricing-promise-icon"><LockKeyhole size={22} /></div>
               <p className="pricing-promise-kicker">The DocuMend promise</p>
               <h2>Your words stay <em>yours.</em></h2>
@@ -476,7 +477,7 @@ export default function Pricing() {
               <div className="pricing-promise-signature">
                 <span />
                 <strong>Local-first editing</strong>
-                <small>signed with care</small>
+                <small>the checks run in your browser</small>
               </div>
             </aside>
           </section>
