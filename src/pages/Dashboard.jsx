@@ -329,7 +329,7 @@ function Dashboard() {
     announce(`Reading ${file.name}…`);
     try {
       const imported = await importFile(file);
-      const doc = await createDocument({ title: imported.title });
+      const doc = await createDocument({ title: imported.title, source: 'imported' });
       await updateDocument(doc.id, { content: imported.html, wordCount: imported.wordCount, format: imported.format });
       navigate(`/editor?doc=${doc.id}`);
     } catch (error) {

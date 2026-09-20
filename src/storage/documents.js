@@ -19,9 +19,31 @@ const CATEGORY_BY_TYPE = {
   Other: 'Draft',
 };
 
+/**
+ * The types a document can be, in the order they are offered.
+ *
+ * One list, exported, because three screens need it: "Create document", the
+ * Settings page, and the editor's own type picker. When it lived in each of
+ * them separately, a type added in one place was a type the engine had no
+ * template for in another.
+ */
+export const DOCUMENT_TYPES = Object.keys(CATEGORY_BY_TYPE);
+
 const TINTS = ['saffron', 'sage', 'coral', 'lavender', 'sky', 'gold'];
 
-export async function createDocument({ title, type = 'Other', folderId = 'root', checks = [] }) {
+export async function createDocument({
+  title,
+  type = 'Other',
+  folderId = 'root',
+  checks = [],
+  /**
+   * 'created' — started here on a blank page.
+   * 'imported' — brought in from a file on the device.
+   * The library separates the two, and nothing else could tell them apart:
+   * an imported .docx and a new document looked identical in the record.
+   */
+  source = 'created',
+}) {
   // The plan's document limit is real, and this is where it is real. Throws a
   // message meant to be shown to the reader (see plans/limits.js).
   await assertCanCreateDocument();
@@ -36,6 +58,7 @@ export async function createDocument({ title, type = 'Other', folderId = 'root',
     checks, // analyses chosen on the setup screen
     tint: TINTS[Math.floor(Math.random() * TINTS.length)],
     format: 'DOCX',
+    source,
     content: '', // HTML from the Tiptap editor
     wordCount: 0,
     status: 'draft',
@@ -68,6 +91,23 @@ export async function updateDocument(id, changes) {
 }
 
 /**
+ * Changes what kind of document this is — Thesis, Report, Legal…
+ *
+ * This is the one thing that decides which template the structure checks
+ * measure the document against, and until now it could only be chosen on the
+ * screen that created the document. An imported file never passed through
+ * that screen, so every imported thesis arrived as "Other" — the one type
+ * with no template — and its structure checks sat there doing nothing, with
+ * no way to say so and no way to fix it.
+ *
+ * The category moves with it, so My documents keeps filing the document under
+ * the right chip.
+ */
+export function setDocumentType(id, type) {
+  return updateDocument(id, { type, category: CATEGORY_BY_TYPE[type] ?? 'Draft' });
+}
+
+/**
  * Makes a copy of a document, content and all.
  *
  * The copy is a new document in every way that matters: its own id, its own
@@ -86,6 +126,7 @@ export async function duplicateDocument(id) {
     type: original.type,
     folderId: original.folderId,
     checks: original.checks ?? [],
+    source: original.source ?? 'created',
   });
   await updateDocument(copy.id, {
     content: original.content ?? '',

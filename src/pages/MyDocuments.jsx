@@ -32,7 +32,6 @@ import {
   Search,
   Trash2,
   TriangleAlert,
-  UserRound,
 } from 'lucide-react';
 import {
   MobileDrawer,
@@ -54,7 +53,36 @@ import { formatModified, pageLabel, pagesFor } from '../storage/format';
    Content data
    ========================================================================== */
 
-const tabs = ['Home', 'Insert', 'References', 'AI Tools'];
+/**
+ * What the strip along the top offers.
+ *
+ * It used to read Home / Insert / References / AI Tools — the editor's ribbon
+ * tabs, copied onto a page where no document is open, each one raising
+ * "Insert view selected" and changing nothing. These three keep the names that
+ * were already there and give them a meaning the library can actually answer:
+ * everything, what you touched this week, and what came in from a file.
+ */
+const RECENT_WINDOW_MS = 2 * 24 * 60 * 60 * 1000; // "the last day or two"
+
+const VIEWS = [
+  { id: 'home', label: 'Home', empty: 'No documents yet.' },
+  { id: 'recent', label: 'Recent', empty: 'Nothing edited in the last two days.' },
+  { id: 'insert', label: 'Insert', empty: 'Nothing imported yet. Open a .docx, .txt or .md file and it appears here.' },
+];
+
+/**
+ * Was this document brought in from a file, rather than started here?
+ *
+ * New records say so themselves (`source`, set by createDocument). Records
+ * made before that field existed do not, so there is one honest guess for
+ * them: createDocument always writes DOCX, so any other format can only have
+ * arrived through an import.
+ */
+function isImported(doc) {
+  if (doc.elsewhere) return false; // the server is not told where a document came from
+  if (doc.source) return doc.source === 'imported';
+  return (doc.format ?? 'DOCX') !== 'DOCX';
+}
 
 const categories = ['All', 'Academic', 'Legal', 'Researcher', 'Corporate', 'Draft'];
 
@@ -87,6 +115,7 @@ function toElsewhereCard(row) {
     elsewhere: true,
     wordCount: row.wordCount ?? 0,
     pages: Math.max(1, row.pages ?? 1),
+    updatedAt: new Date(row.deviceUpdatedAt).getTime(), // so sorting treats both the same
     modified: formatModified(new Date(row.deviceUpdatedAt).getTime()),
     tags: [{ label: row.type ?? 'Other', tone: 'info' }],
   };
@@ -168,7 +197,9 @@ function MyDocuments() {
   const { darkMode, toggleDarkMode } = useTheme();
 
   const [activeNav, setActiveNav] = useState('My documents');
-  const [activeTab, setActiveTab] = useState('Home');
+  // Which of Home / Recent / Insert the strip is on. A tab, not a setting:
+  // every visit starts at Home.
+  const [view, setView] = useState('home');
   const [activeCategory, setActiveCategory] = useState('All');
   // Kept in the browser's settings store, so the choice survives a reload
   // and is the same on every page.
@@ -214,13 +245,29 @@ function MyDocuments() {
 
   const filteredDocuments = useMemo(() => {
     const normalized = search.trim().toLowerCase();
-    return documents.filter((doc) => {
+    const freshAfter = Date.now() - RECENT_WINDOW_MS;
+
+    const matching = documents.filter((doc) => {
+      // The tab comes first: it decides which documents are on the page at all.
+      if (view === 'recent' && (doc.updatedAt ?? 0) < freshAfter) return false;
+      if (view === 'insert' && !isImported(doc)) return false;
       if (activeCategory !== 'All' && doc.category !== activeCategory) return false;
       if (!normalized) return true;
       const haystack = `${doc.title} ${doc.type} ${doc.category} ${doc.tags.map((tag) => tag.label).join(' ')}`;
       return haystack.toLowerCase().includes(normalized);
     });
-  }, [documents, search, activeCategory]);
+
+    // Sorted on a copy: `documents` is memoised from the live queries and must
+    // not be reordered in place. Newest first, on every tab.
+    return [...matching].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  }, [documents, search, activeCategory, view]);
+
+  /** What the strip says the tab is showing, in plain words. */
+  const viewNote = view === 'recent'
+    ? 'Edited in the last two days'
+    : view === 'insert'
+      ? 'Brought in from a file on this device'
+      : `${documents.length} ${documents.length === 1 ? 'document' : 'documents'}`;
 
   const announce = (message) => setToast(message);
 
@@ -274,11 +321,6 @@ function MyDocuments() {
     setActiveNav(label);
     if (label !== 'My documents') announce(`${label} view selected`);
     setMobileSidebar(false);
-  };
-
-  const selectTab = (tab) => {
-    setActiveTab(tab);
-    if (tab !== 'Home') announce(`${tab} view selected`);
   };
 
   const submitModal = async (value) => {
@@ -338,30 +380,22 @@ function MyDocuments() {
         <WorkspaceHeader onAnnounce={announce} />
 
         <div className="dash-body">
-          {/* Editor-style tab strip */}
+          {/* Home / Recent / Insert — three views of the same library. */}
           <div className="docs-tabs-row dash-rise dash-d1">
-            <div className="docs-tabs" role="tablist" aria-label="Document tools">
-              {tabs.map((tab) => (
+            <div className="docs-tabs" role="group" aria-label="Which documents to show">
+              {VIEWS.map((item) => (
                 <button
-                  key={tab}
+                  key={item.id}
                   type="button"
-                  role="tab"
-                  aria-selected={activeTab === tab}
-                  onClick={() => selectTab(tab)}
-                  className={`docs-tab ${activeTab === tab ? 'is-active' : ''}`}
+                  aria-pressed={view === item.id}
+                  onClick={() => setView(item.id)}
+                  className={`docs-tab ${view === item.id ? 'is-active' : ''}`}
                 >
-                  {tab}
+                  {item.label}
                 </button>
               ))}
             </div>
-            <button
-              type="button"
-              onClick={() => announce('Profile menu is ready')}
-              className="docs-tabs-avatar"
-              aria-label="Your profile"
-            >
-              <UserRound size={17} strokeWidth={2.2} />
-            </button>
+            <p className="docs-tab-note">{viewNote}</p>
           </div>
 
           {/* Heading + New Document */}
@@ -445,9 +479,23 @@ function MyDocuments() {
           ) : (
             <div className="docs-empty dash-rise dash-d4">
               <Search size={22} />
-              <p>Nothing here matches{search ? ` "${search}"` : ' that filter'}</p>
-              <button type="button" onClick={() => { setSearch(''); setActiveCategory('All'); }}>
-                Clear search and filters
+              {/* An empty tab is not an empty search: saying "nothing matches
+                  your search" when the search box is blank is a small lie the
+                  reader has to work out for themselves. */}
+              <p>
+                {search || activeCategory !== 'All'
+                  ? `Nothing here matches${search ? ` "${search}"` : ' that filter'}`
+                  : VIEWS.find((item) => item.id === view)?.empty}
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch('');
+                  setActiveCategory('All');
+                  setView('home');
+                }}
+              >
+                Show every document
               </button>
             </div>
           )}

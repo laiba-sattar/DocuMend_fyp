@@ -96,9 +96,11 @@ import { useTheme } from '../components/ThemeContext';
 import { navigate } from '../router';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
+  DOCUMENT_TYPES,
   createDocument as saveNewDocument,
   getDocument,
   listDocuments,
+  setDocumentType,
   updateDocument,
 } from '../storage/documents';
 import { clockTime, countWords, pageLabel, pagesFor } from '../storage/format';
@@ -213,6 +215,18 @@ function Editor() {
 
   const currentDocument = documents.find((doc) => doc.id === selectedId) ?? null;
 
+  /**
+   * The open document's stored record, before the mapping above rewrites it.
+   *
+   * Worth the extra line, because that mapping overloads one word: on a card,
+   * `type` means the file format (DOCX, TXT) while `kind` means Thesis or
+   * Report — the opposite of what the record itself calls them. Anything that
+   * has to be right about the document's type reads it from here, where the
+   * name means only one thing.
+   */
+  const currentRecord = (storedDocuments ?? []).find((doc) => doc.id === selectedId) ?? null;
+  const documentKind = currentRecord?.type ?? 'Other';
+
   // One Tiptap editor for the page; documents are swapped into it with setContent.
   const editorOptions = useMemo(() => ({
     extensions: buildExtensions(),
@@ -230,12 +244,13 @@ function Editor() {
   const engine = useEngine(editor, {
     enabled: heatmapEnabled,
     docId: selectedId,
-    // A document record stores this as `type` (see storage/documents.js). This
-    // read `currentDocument?.kind`, which is never set, so every document
-    // reached the engine as "Other" — the one type with no template — and the
-    // structure checks had nothing to compare against. They were silently
-    // dead; the engine was working perfectly on a question nobody asked it.
-    kind: currentDocument?.type ?? 'Other',
+    // Read from the record, not from the card. This line has been wrong twice
+    // in two different ways — `currentDocument.kind`, then
+    // `currentDocument.type` — because the card renames both fields and swaps
+    // their meanings. Either mistake sends the engine a file format where a
+    // document type belongs, `template_for("docx")` finds nothing, and every
+    // structure check goes quiet with no error to show for it.
+    kind: documentKind,
   });
 
   // Which toolbar buttons should look pressed for the text under the cursor.
@@ -544,7 +559,7 @@ function Editor() {
     announce(`Reading ${file.name}…`);
     try {
       const imported = await importFile(file);
-      const doc = await saveNewDocument({ title: imported.title });
+      const doc = await saveNewDocument({ title: imported.title, source: 'imported' });
       await updateDocument(doc.id, { content: imported.html, wordCount: imported.wordCount, format: imported.format });
       await changeDocument(doc.id);
       announce(`${file.name} imported as a new document`);
@@ -561,7 +576,12 @@ function Editor() {
     await saveNow();
     const source = await getDocument(loadedIdRef.current);
     if (!source) return;
-    const copy = await saveNewDocument({ title: `${source.title} (copy)`, type: source.type, folderId: source.folderId });
+    const copy = await saveNewDocument({
+      title: `${source.title} (copy)`,
+      type: source.type,
+      folderId: source.folderId,
+      source: source.source ?? 'created', // a copy of an imported file is still an imported file
+    });
     await updateDocument(copy.id, { content: source.content, wordCount: source.wordCount, format: source.format });
     await changeDocument(copy.id);
     announce('Copy created and opened');
@@ -608,6 +628,26 @@ function Editor() {
   const ignoreIssue = (issue) => {
     engine.ignoreIssue(issue);
     announce('Issue ignored');
+  };
+
+  /**
+   * Changes the open document's type, and says what that changed.
+   *
+   * Nothing else is needed to re-run the checks: the type is read from the
+   * live query, so writing it re-renders this page with a new `kind`, and
+   * useEngine analyses again whenever `kind` changes.
+   */
+  const changeKind = async (next) => {
+    if (!currentRecord || next === documentKind) return;
+    try {
+      await setDocumentType(currentRecord.id, next);
+      announce(next === 'Other'
+        ? 'Type set to Other. Sections are no longer checked; wording and repetition still are.'
+        : `Type set to ${next}. The structure checks now use the ${next.toLowerCase()} template.`);
+    } catch (error) {
+      console.error(error);
+      announce('That could not be saved.');
+    }
   };
 
   const changeDocument = async (id) => {
@@ -1019,15 +1059,31 @@ function Editor() {
                       <div className={`editor-scan-progress ${engine.analyzing ? 'is-busy' : ''}`}><span /></div>
                       <div className="editor-scan-row editor-scan-counts">
                         <span>{issueCount} {issueCount === 1 ? 'issue' : 'issues'} found</span>
-                        {/* The document's type is shown here on purpose. The
-                            structure checks are measured against it, and when it
-                            silently read "Other" every one of them went quiet
-                            with nothing on screen to say why. */}
                         <span>
                           {engine.stats
-                            ? `${currentDocument?.type ?? 'Other'} · ${engine.stats.sentences} sentences · ${engine.stats.checks} checks`
+                            ? `${engine.stats.sentences} sentences · ${engine.stats.checks} checks`
                             : '—'}
                         </span>
+                      </div>
+
+                      {/* The document's type, as a control rather than a label.
+                          It decides which template the structure checks measure
+                          against, and it used to be fixed at the moment the
+                          document was created — so an imported thesis was stuck
+                          as "Other" for ever, with every structure check quietly
+                          switched off and nothing on screen to say why. */}
+                      <div className="editor-scan-kind">
+                        <label htmlFor="editor-doc-kind">Document type</label>
+                        <select
+                          id="editor-doc-kind"
+                          value={documentKind}
+                          disabled={!currentRecord}
+                          onChange={(event) => changeKind(event.target.value)}
+                        >
+                          {DOCUMENT_TYPES.map((name) => (
+                            <option key={name} value={name}>{name}</option>
+                          ))}
+                        </select>
                       </div>
                     </div>
                     <div className="editor-review-heading">
@@ -1108,6 +1164,17 @@ function Editor() {
                       <p className="editor-outline-empty">
                         Give your sections headings from the Styles gallery (Heading 1, 2 or 3). DocuMend then checks the
                         outline for missing sections and empty ones.
+                      </p>
+                    )}
+
+                    {/* Why nothing is being reported, when nothing is being
+                        reported. "Other" has no template on purpose — but a
+                        silent panel looked identical to a broken one. */}
+                    {documentKind === 'Other' && (
+                      <p className="editor-outline-empty">
+                        This document's type is <strong>Other</strong>, which has no template,
+                        so no section is ever called missing. Set a type on the Issues tab to
+                        check it against a thesis, paper, report or agreement.
                       </p>
                     )}
 

@@ -596,6 +596,22 @@ export default function Settings() {
               </div>
             </div>
           )}
+
+          {/* The end of the page, on every tab.
+              "Sign out everywhere" further up is a different thing: it revokes
+              every session on every machine. This one just closes this one, on
+              this computer, and it is the one most people are looking for. The
+              dialog it opens really signs out — it revokes the refresh token on
+              the server before it sends you home. */}
+          <div className="set-v2-signout-foot">
+            <div className="set-v2-signout-copy">
+              <strong>Finished for now?</strong>
+              <p>Signs you out of DocuMend on this computer. Your documents stay in this browser, exactly where they are.</p>
+            </div>
+            <button type="button" className="set-v2-signout-btn" onClick={() => setModal('logout')}>
+              <LogOut size={15} /> <span>Log out</span>
+            </button>
+          </div>
         </div>
       </main>
 

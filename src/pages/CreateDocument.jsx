@@ -43,12 +43,15 @@ import { useTheme } from '../components/ThemeContext';
 import { navigate } from '../router';
 import { usePreference } from '../settings/preferences';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { createDocument as saveNewDocument } from '../storage/documents';
+import { DOCUMENT_TYPES, createDocument as saveNewDocument } from '../storage/documents';
 import { listFolderOptions, ROOT_FOLDER } from '../storage/folders';
 
 const MAX_NAME = 64;
 
-const TYPES = ['Thesis', 'Research paper', 'Legal', 'Report', 'Other'];
+// The one list, from the module that writes the record. It used to be typed
+// out again here, which is how a type could exist on this screen that the
+// engine had never heard of.
+const TYPES = DOCUMENT_TYPES;
 
 const ANALYSES = [
   { id: 'grammar', label: 'Grammar', hint: 'Style + syntax pass' },

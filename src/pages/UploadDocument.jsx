@@ -256,7 +256,7 @@ export default function UploadDocument() {
       const imported = await importFile(file); // reading + converting
       if (token !== importToken.current) return;
       setProgress(70);
-      const doc = await createDocument({ title: imported.title });
+      const doc = await createDocument({ title: imported.title, source: 'imported' });
       await updateDocument(doc.id, { content: imported.html, wordCount: imported.wordCount, format: imported.format });
       setImportedDocId(doc.id);
       const entry = {

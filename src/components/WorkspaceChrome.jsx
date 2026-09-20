@@ -25,7 +25,6 @@ import './workspace-chrome.css';
 import {
   Bell,
   BellOff,
-  ChevronDown,
   ChevronRight,
   LogOut,
   Menu,
@@ -260,7 +259,7 @@ export function WorkspaceHeader({ onAnnounce }) {
       <div className="dash-header-actions">
         <NotificationToggle onAnnounce={onAnnounce} />
         <span className="dash-divider" />
-        <ProfileButton onAnnounce={onAnnounce} />
+        <ProfileButton />
       </div>
     </header>
   );
@@ -343,7 +342,7 @@ function NotificationToggle({ onAnnounce }) {
  * The signed-in user in the header: their initials, their first name (S5).
  * Before anyone signs in it simply says "You", so the header never looks broken.
  */
-function ProfileButton({ onAnnounce }) {
+function ProfileButton() {
   const { user } = useAuth();
   const name = user?.name?.trim() || 'You';
   const initials = name
@@ -353,13 +352,22 @@ function ProfileButton({ onAnnounce }) {
     .join('') || 'Y';
 
   return (
-    <button type="button" onClick={() => onAnnounce('Profile menu is ready')} className="dash-profile">
+    // It used to raise "Profile menu is ready" and open nothing at all. There
+    // is no menu; there is a Settings page, and that is where a name and a
+    // plan belong. So the chip goes there — and the arrow points right rather
+    // than down, because a chevron pointing down promises a dropdown.
+    <button
+      type="button"
+      onClick={() => navigate('/settings')}
+      className="dash-profile"
+      title="Open your settings"
+    >
       <span className="dash-avatar">{initials}</span>
       <span className="dash-profile-text">
         <span className="dash-profile-name">{name.split(/\s+/)[0]}</span>
         <span className="dash-profile-role">{user ? `${user.tier[0]}${user.tier.slice(1).toLowerCase()} plan` : 'Personal workspace'}</span>
       </span>
-      <ChevronDown size={14} />
+      <ChevronRight size={14} aria-hidden="true" />
     </button>
   );
 }

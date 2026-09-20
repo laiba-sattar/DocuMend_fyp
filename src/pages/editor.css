@@ -2225,3 +2225,47 @@ button.editor-outline-item.level-3 span { opacity: .65; }
 
 .dash-dark button.editor-outline-item:hover { border-color: #2c4034; background: #16241d; }
 .dash-dark .editor-outline-empty { color: #9fb3a6; }
+
+/* ==========================================================================
+   The document type, in the scan card
+
+   Small, because it is not a thing to change often — but a control, because
+   it decides which template the structure checks measure the document
+   against, and until it was one, an imported document could never be told
+   what it was.
+   ========================================================================== */
+
+.editor-scan-kind {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--dash-line, rgba(0, 0, 0, .08));
+}
+
+.editor-scan-kind label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  opacity: .72;
+}
+
+.editor-scan-kind select {
+  flex: 0 1 auto;
+  max-width: 60%;
+  padding: 4px 8px;
+  border: 1px solid var(--dash-line, rgba(0, 0, 0, .12));
+  border-radius: 7px;
+  background: var(--dash-card, #fff);
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.editor-scan-kind select:disabled { opacity: .5; cursor: default; }
+.editor-scan-kind select:focus-visible { outline: 2px solid var(--dash-sage, #6f9c85); outline-offset: 1px; }

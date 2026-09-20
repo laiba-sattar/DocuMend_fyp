@@ -429,3 +429,21 @@
   .dash-private .docs-card-title,
   .dash-private .docs-card-meta { transition: none; }
 }
+
+/* ==========================================================================
+   The tab strip
+
+   Home / Recent / Insert, plus a quiet line saying what the tab is showing —
+   so "Recent" does not leave the reader guessing how recent it means.
+   ========================================================================== */
+
+.docs-tab-note {
+  margin: 0;
+  color: var(--dash-ink-soft);
+  font-size: 12px;
+  letter-spacing: .01em;
+}
+
+@media (max-width: 640px) {
+  .docs-tab-note { display: none; }
+}

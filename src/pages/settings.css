@@ -1167,3 +1167,65 @@
 .set-v2-meter-box { margin-top: 14px; }
 
 .set-v2-tag-icon { flex: none; }
+
+/* ==========================================================================
+   The way out
+
+   Sits at the foot of the page on every tab, so "log me out" is never more
+   than a scroll away. Quiet rather than red: signing out loses nothing, and a
+   danger colour here would sit beside a button that really does erase things.
+   ========================================================================== */
+
+.set-v2-signout-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 34px 0 8px;
+  padding: 20px 22px;
+  border: 1px solid var(--dash-line);
+  border-radius: 16px;
+  background: var(--dash-card);
+}
+
+.set-v2-signout-copy strong {
+  display: block;
+  font-size: 14px;
+  color: var(--dash-ink);
+}
+
+.set-v2-signout-copy p {
+  margin: 5px 0 0;
+  max-width: 52ch;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--dash-ink-soft);
+}
+
+.set-v2-signout-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border: 1px solid var(--dash-line);
+  border-radius: 10px;
+  background: var(--dash-raised, transparent);
+  color: var(--dash-ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .18s ease, border-color .18s ease;
+}
+
+.set-v2-signout-btn:hover {
+  background: var(--dash-ink);
+  border-color: var(--dash-ink);
+  color: var(--dash-card);
+}
+
+.set-v2-signout-btn:focus-visible {
+  outline: 2px solid var(--dash-sage, #6f9c85);
+  outline-offset: 2px;
+}

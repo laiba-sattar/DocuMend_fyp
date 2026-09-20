@@ -67,10 +67,20 @@ export function queueUpsert(id) {
   schedule();
 }
 
-/** Remember that this document is gone. */
+/**
+ * Remember that this document is gone.
+ *
+ * The row in `remoteDocs` — our copy of what the account knows about — goes at
+ * the same moment, and that matters more than it looks. Without it a deleted
+ * document came straight back as an "Another device" card: gone from this
+ * browser, still in the account's list, so the library decided it must be
+ * living on some other computer. Telling the server is not enough, because
+ * nothing re-reads that list until the next sign-in.
+ */
 export function queueDelete(id) {
   if (!id) return;
   db.syncQueue.put({ id, op: 'delete', queuedAt: Date.now() }).catch(() => {});
+  db.remoteDocs.delete(id).catch(() => {});
   schedule();
 }
 
@@ -96,6 +106,7 @@ export async function drain() {
       try {
         if (entry.op === 'delete') {
           await api.deleteDocumentMeta(entry.id);
+          await db.remoteDocs.delete(entry.id).catch(() => {});
         } else {
           const doc = await db.documents.get(entry.id);
           // Deleted between queueing and now: there is nothing to describe.
