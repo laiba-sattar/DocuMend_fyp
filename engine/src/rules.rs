@@ -57,6 +57,10 @@ pub struct Issue {
     pub repairs: Vec<Repair>,
     /// A heading the editor can add with one click (structure issues only).
     pub suggestion: Option<Suggestion>,
+    /// A whole outline the editor can add at once. Used by the one check that
+    /// fires when a document has no headings at all, where offering the
+    /// sections one at a time would mean eight rounds of the same click.
+    pub outline: Vec<Suggestion>,
 }
 
 /// Sentences longer than this are ignored by the pair checks (tables, lists of numbers).
@@ -170,6 +174,7 @@ fn number_conflicts(a: &Prepared, b: &Prepared, shared: &[String], issues: &mut 
                     },
                 ],
                 suggestion: None,
+                outline: Vec::new(),
             });
         }
     }
@@ -204,6 +209,7 @@ fn claim_conflict(a: &Prepared, b: &Prepared, shared: &[String], issues: &mut Ve
         related: vec![Span { start: b.sentence.start, end: b.sentence.end }],
         repairs: Vec::new(), // a human has to decide which version is true
         suggestion: None,
+        outline: Vec::new(),
     });
 }
 
@@ -241,6 +247,7 @@ fn repetition(a: &Prepared, b: &Prepared, issues: &mut Vec<Issue>) {
             text: String::new(),
         }],
         suggestion: None,
+        outline: Vec::new(),
     });
 }
 

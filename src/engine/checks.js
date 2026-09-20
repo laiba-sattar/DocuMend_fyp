@@ -36,6 +36,12 @@ export const CHECKS = [
     blurb: 'A sentence says what an earlier one already said.',
   },
   {
+    id: 'no-headings',
+    kind: 'structure',
+    title: 'No headings yet',
+    blurb: 'A document with no headings at all, where its type says it should have sections. One click adds the whole outline.',
+  },
+  {
     id: 'missing-section',
     kind: 'structure',
     title: 'A section is missing',

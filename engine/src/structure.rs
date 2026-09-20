@@ -154,11 +154,72 @@ fn sections_have_text(text: &str, headings: &[Heading]) -> Vec<bool> {
     filled
 }
 
+/// The end of the document's first word, in UTF-16 units. The "no headings"
+/// issue has no single place to point at, so it points at the opening word
+/// rather than at nothing — a zero-width highlight draws as an empty box.
+fn first_word_end(text: &str) -> usize {
+    let mut position = 0usize;
+    let mut seen_letter = false;
+    for c in text.chars() {
+        if c.is_whitespace() {
+            if seen_letter {
+                return position;
+            }
+        } else {
+            seen_letter = true;
+        }
+        position += c.len_utf16();
+        if position >= 40 {
+            return position;
+        }
+    }
+    position
+}
+
 /// Runs the structure checks. `kind` is the document's type from the Create screen.
 pub fn run(text: &str, headings: &[Heading], kind: &str) -> Vec<Issue> {
     let mut issues = Vec::new();
+
+    // 0. No headings at all.
+    //
+    // This used to return nothing, which was exactly backwards: a page with no
+    // headings is the moment a writer most needs the shape of the document
+    // spelled out, and the checks below all need at least one heading before
+    // they can say anything. So the one thing worth saying here is the whole
+    // outline, offered in a single click rather than eight.
+    //
+    // It waits for a little writing first (40 words). Nagging an empty page
+    // the moment it opens would be noise, not help.
     if headings.is_empty() {
-        return issues; // nothing to say about a document with no headings yet
+        let template = template_for(kind);
+        let words = text.split_whitespace().count();
+        if !template.is_empty() && words >= 40 {
+            let names: Vec<&str> = template.iter().map(|section| section.name).collect();
+            issues.push(Issue {
+                id: "outline-missing".to_string(),
+                kind: "structure".to_string(),
+                title: "No headings yet".to_string(),
+                message: format!(
+                    "This document has no headings, so nothing about its structure can be checked. \
+                     A {} usually has {} sections: {}.",
+                    kind.to_lowercase(),
+                    names.len(),
+                    names.join(", ")
+                ),
+                severity: "medium".to_string(),
+                location: "Whole document".to_string(),
+                start: 0,
+                end: first_word_end(text),
+                related: Vec::new(),
+                repairs: Vec::new(),
+                suggestion: None,
+                outline: template
+                    .iter()
+                    .map(|section| Suggestion { title: section.name.to_string(), level: 1 })
+                    .collect(),
+            });
+        }
+        return issues;
     }
 
     let last = &headings[headings.len() - 1];
@@ -196,6 +257,7 @@ pub fn run(text: &str, headings: &[Heading], kind: &str) -> Vec<Issue> {
                             text: renamed,
                         }],
                         suggestion: None,
+                        outline: Vec::new(),
                     });
                 }
                 continue;
@@ -219,6 +281,7 @@ pub fn run(text: &str, headings: &[Heading], kind: &str) -> Vec<Issue> {
                     title: wanted.name.to_string(),
                     level: body_level.max(1),
                 }),
+                outline: Vec::new(),
             });
         }
     }
@@ -245,6 +308,7 @@ pub fn run(text: &str, headings: &[Heading], kind: &str) -> Vec<Issue> {
             related: Vec::new(),
             repairs: Vec::new(),
             suggestion: None,
+            outline: Vec::new(),
         });
     }
 
@@ -267,6 +331,7 @@ pub fn run(text: &str, headings: &[Heading], kind: &str) -> Vec<Issue> {
                 related: vec![Span { start: before.start, end: before.end }],
                 repairs: Vec::new(),
                 suggestion: None,
+                outline: Vec::new(),
             });
         }
     }
@@ -292,6 +357,7 @@ pub fn run(text: &str, headings: &[Heading], kind: &str) -> Vec<Issue> {
                 related: vec![Span { start: other.start, end: other.end }],
                 repairs: Vec::new(),
                 suggestion: None,
+                outline: Vec::new(),
             });
         }
     }
@@ -404,5 +470,35 @@ mod tests {
         let headings = outline(&[("Results", 1, 0, 7), ("Results", 1, 20, 27)]);
         let issues = run(text, &headings, "Other");
         assert!(issues.iter().any(|i| i.title == "Two sections share a name"));
+    }
+
+    #[test]
+    fn offers_the_whole_outline_when_there_are_no_headings() {
+        let text = "This study looks at how students write long documents and where the structure \
+                    tends to break down under pressure. We interviewed twenty students across three \
+                    separate departments and collected the drafts that each of them was working on \
+                    at the time, then read every one of them closely.";
+        let issues = run(text, &[], "Thesis");
+        let issue = issues.iter().find(|i| i.title == "No headings yet").expect("should offer an outline");
+        assert_eq!(issue.outline.len(), 8);
+        assert_eq!(issue.outline[0].title, "Abstract");
+        assert!(issue.message.contains("Methodology"));
+        assert!(issue.end > issue.start, "the highlight needs somewhere to land");
+    }
+
+    #[test]
+    fn stays_quiet_on_a_page_barely_started() {
+        // Three words in is too early to be told how a thesis is shaped.
+        let issues = run("Chapter one draft", &[], "Thesis");
+        assert!(issues.is_empty());
+    }
+
+    #[test]
+    fn stays_quiet_when_the_kind_has_no_template() {
+        let text = "This study looks at how students write long documents and where the structure \
+                    tends to break down under pressure. We interviewed twenty students across three \
+                    separate departments and collected the drafts that each of them was working on \
+                    at the time, then read every one of them closely.";
+        assert!(run(text, &[], "Other").is_empty());
     }
 }

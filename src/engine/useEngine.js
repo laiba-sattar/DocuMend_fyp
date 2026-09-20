@@ -22,6 +22,8 @@ const IDLE_MS = 1200;
 
 export function useEngine(editor, { enabled = true, docId = null, kind = 'Other' } = {}) {
   const [status, setStatus] = useState('starting');
+  // Why the engine is off, or why it fell back to JavaScript. Shown to the reader.
+  const [engineReason, setEngineReason] = useState('');
   // Checks the reader switched off on the Settings page.
   const [mutedChecks] = usePreference('mutedChecks');
   const [engineName, setEngineName] = useState(null);
@@ -44,6 +46,7 @@ export function useEngine(editor, { enabled = true, docId = null, kind = 'Other'
       worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
     } catch (error) {
       console.error('The analysis engine could not start', error);
+      setEngineReason(error?.message ?? String(error));
       setStatus('off');
       return undefined;
     }
@@ -52,6 +55,12 @@ export function useEngine(editor, { enabled = true, docId = null, kind = 'Other'
       const message = event.data || {};
       if (message.type === 'ready') {
         setEngineName(message.engine);
+        // The worker says why it fell back to JavaScript; without this the
+        // reason was thrown away and a silent fallback looked like a failure.
+        if (message.reason) {
+          setEngineReason(message.reason);
+          console.info('[engine] WebAssembly did not load, using JavaScript:', message.reason);
+        }
         setStatus('ready');
         return;
       }
@@ -69,7 +78,9 @@ export function useEngine(editor, { enabled = true, docId = null, kind = 'Other'
       }
     };
     worker.onerror = (event) => {
-      console.error('The analysis engine stopped', event.message || event);
+      const why = event?.message || 'the engine thread stopped before it could start';
+      console.error('The analysis engine stopped:', why, event);
+      setEngineReason(why);
       setStatus('off');
       setAnalyzing(false);
     };
@@ -220,6 +231,35 @@ export function useEngine(editor, { enabled = true, docId = null, kind = 'Other'
     return true;
   }, [editor, runNow]);
 
+  /**
+   * Adds every heading the issue suggests, in one edit.
+   *
+   * One edit rather than eight matters for two reasons: undo puts the document
+   * back with a single Ctrl+Z, and the analysis runs once at the end instead of
+   * after each heading.
+   */
+  const addOutline = useCallback((issue) => {
+    const wanted = issue?.outline ?? [];
+    if (!wanted.length || !editor || editor.isDestroyed) return false;
+    const blocks = wanted.flatMap((heading) => ([
+      {
+        type: 'heading',
+        attrs: { level: Math.min(3, Math.max(1, heading.level)) },
+        content: [{ type: 'text', text: heading.title }],
+      },
+      { type: 'paragraph' },
+    ]));
+    editor
+      .chain()
+      .focus('end')
+      .insertContentAt(editor.state.doc.content.size, blocks)
+      .scrollIntoView()
+      .run();
+    setDismissed((current) => ({ ...current, [issue.id]: 'fixed' }));
+    runNow();
+    return true;
+  }, [editor, runNow]);
+
   const ignoreIssue = useCallback((issue) => {
     setDismissed((current) => ({ ...current, [issue.id]: 'ignored' }));
   }, []);
@@ -227,6 +267,7 @@ export function useEngine(editor, { enabled = true, docId = null, kind = 'Other'
   return {
     status,
     engineName,
+    engineReason,
     analyzing,
     issues: openIssues,
     counts,
@@ -238,6 +279,7 @@ export function useEngine(editor, { enabled = true, docId = null, kind = 'Other'
     goToIssue,
     goToOffset,
     addHeading,
+    addOutline,
     applyRepair,
     ignoreIssue,
   };

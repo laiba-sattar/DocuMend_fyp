@@ -65,7 +65,8 @@ pub fn analyze(document: &str, outline: &str, kind: &str) -> Report {
             words: text::words(document).len(),
             numbers,
             headings: headings.len(),
-            checks: 7,
+            // 9 rules: 3 about the sentences, 6 about the structure.
+            checks: 9,
         },
         issues,
     }
@@ -124,6 +125,16 @@ fn issue_to_json(issue: &Issue) -> String {
         ]),
         None => "null".to_string(),
     };
+    let outline: Vec<String> = issue
+        .outline
+        .iter()
+        .map(|hint| {
+            json::object(&[
+                ("title", json::quote(&hint.title)),
+                ("level", json::number(hint.level as f64)),
+            ])
+        })
+        .collect();
     json::object(&[
         ("id", json::quote(&issue.id)),
         ("kind", json::quote(&issue.kind)),
@@ -136,6 +147,7 @@ fn issue_to_json(issue: &Issue) -> String {
         ("related", json::array(&related)),
         ("repairs", json::array(&repairs)),
         ("suggestion", suggestion),
+        ("outline", json::array(&outline)),
     ])
 }
 
@@ -185,7 +197,7 @@ mod tests {
         assert_eq!(report.stats.sentences, 2);
         assert_eq!(report.stats.numbers, 2);
         assert_eq!(report.stats.headings, 0);
-        assert_eq!(report.stats.checks, 7);
+        assert_eq!(report.stats.checks, 9);
     }
 
     #[test]

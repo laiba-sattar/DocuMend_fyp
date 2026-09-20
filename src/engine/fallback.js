@@ -229,9 +229,49 @@ function numberingPrefix(title) {
   return /\d/.test(prefix) ? `${prefix.trimEnd()} ` : '';
 }
 
+/**
+ * The end of the first word, so the "no headings" card has somewhere to point.
+ * A zero-width highlight draws as an empty box, which looks like a bug.
+ */
+function firstWordEnd(text) {
+  const match = (text || '').match(/^\s*\S+/);
+  return Math.min(40, match ? match[0].length : 0);
+}
+
 function structureIssues(text, headings, kind) {
   const issues = [];
-  if (!headings.length) return issues;
+
+  // 0. No headings at all.
+  //
+  // This used to return nothing, which was exactly backwards: a page with no
+  // headings is the moment a writer most needs the shape of the document
+  // spelled out, and every check below needs at least one heading before it
+  // can say anything. So the one thing worth saying here is the whole outline,
+  // offered in a single click rather than eight. It waits for 40 words first —
+  // nagging an empty page the moment it opens would be noise, not help.
+  if (!headings.length) {
+    const template = TEMPLATES[(kind || '').trim().toLowerCase()] ?? [];
+    const words = (text || '').split(/\s+/).filter(Boolean).length;
+    if (template.length && words >= 40) {
+      const names = template.map(([name]) => name);
+      issues.push({
+        id: 'outline-missing',
+        kind: 'structure',
+        title: 'No headings yet',
+        message: `This document has no headings, so nothing about its structure can be checked. `
+          + `A ${(kind || 'document').toLowerCase()} usually has ${names.length} sections: ${names.join(', ')}.`,
+        severity: 'medium',
+        location: 'Whole document',
+        start: 0,
+        end: firstWordEnd(text),
+        related: [],
+        repairs: [],
+        suggestion: null,
+        outline: names.map((name) => ({ title: name, level: 1 })),
+      });
+    }
+    return issues;
+  }
 
   const last = headings[headings.length - 1];
   const bodyLevel = Math.min(3, Math.max(...headings.map((h) => h.level)));
@@ -262,6 +302,7 @@ function structureIssues(text, headings, kind) {
               text: `${numberingPrefix(found.title)}${name}`,
             }],
             suggestion: null,
+            outline: [],
           });
         }
         return;
@@ -300,6 +341,7 @@ function structureIssues(text, headings, kind) {
       related: [],
       repairs: [],
       suggestion: null,
+      outline: [],
     });
   });
 
@@ -319,6 +361,7 @@ function structureIssues(text, headings, kind) {
       related: [{ start: before.start, end: before.end }],
       repairs: [],
       suggestion: null,
+      outline: [],
     });
   });
 
@@ -341,6 +384,7 @@ function structureIssues(text, headings, kind) {
       related: [{ start: earlier.start, end: earlier.end }],
       repairs: [],
       suggestion: null,
+      outline: [],
     });
   });
 
@@ -395,6 +439,7 @@ export function analyze(text, outline = '', kind = 'Other') {
               { label: `Use ${second.raw} everywhere`, start: first.start, end: first.end, text: second.raw },
             ],
             suggestion: null,
+            outline: [],
           });
         });
       });
@@ -413,6 +458,7 @@ export function analyze(text, outline = '', kind = 'Other') {
           related: [{ start: b.sentence.start, end: b.sentence.end }],
           repairs: [],
           suggestion: null,
+          outline: [],
         });
       }
 
@@ -431,6 +477,7 @@ export function analyze(text, outline = '', kind = 'Other') {
             related: [{ start: a.sentence.start, end: a.sentence.end }],
             repairs: [{ label: 'Delete the repeat', start: b.sentence.start, end: b.sentence.end, text: '' }],
             suggestion: null,
+            outline: [],
           });
         }
       }
@@ -448,7 +495,8 @@ export function analyze(text, outline = '', kind = 'Other') {
       words: wordsOf(text).length,
       numbers: prepared.reduce((total, item) => total + item.numbers.length, 0),
       headings: headings.length,
-      checks: 7,
+      // 9 rules: 3 about the sentences, 6 about the structure.
+      checks: 9,
     },
   };
 }

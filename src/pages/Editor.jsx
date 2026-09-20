@@ -76,6 +76,7 @@ import {
   Subscript,
   Superscript,
   Table2,
+  TriangleAlert,
   Type,
   Underline,
   Undo2,
@@ -229,7 +230,12 @@ function Editor() {
   const engine = useEngine(editor, {
     enabled: heatmapEnabled,
     docId: selectedId,
-    kind: currentDocument?.kind ?? 'Other',
+    // A document record stores this as `type` (see storage/documents.js). This
+    // read `currentDocument?.kind`, which is never set, so every document
+    // reached the engine as "Other" — the one type with no template — and the
+    // structure checks had nothing to compare against. They were silently
+    // dead; the engine was working perfectly on a question nobody asked it.
+    kind: currentDocument?.type ?? 'Other',
   });
 
   // Which toolbar buttons should look pressed for the text under the cursor.
@@ -585,6 +591,18 @@ function Editor() {
       return;
     }
     if (engine.addHeading(issue)) announce(`“${issue.suggestion.title}” heading added at the end`);
+  };
+
+  /** Adds every heading at once, for a document that has none yet. */
+  const addOutline = (issue) => {
+    if (!canEdit()) {
+      announce('Open a document first.');
+      return;
+    }
+    const count = issue.outline?.length ?? 0;
+    if (engine.addOutline(issue)) {
+      announce(`${count} headings added. Write under each one, and the structure checks take it from there.`);
+    }
   };
 
   const ignoreIssue = (issue) => {
@@ -1001,7 +1019,15 @@ function Editor() {
                       <div className={`editor-scan-progress ${engine.analyzing ? 'is-busy' : ''}`}><span /></div>
                       <div className="editor-scan-row editor-scan-counts">
                         <span>{issueCount} {issueCount === 1 ? 'issue' : 'issues'} found</span>
-                        <span>{engine.stats ? `${engine.stats.sentences} sentences · ${engine.stats.checks} checks` : '—'}</span>
+                        {/* The document's type is shown here on purpose. The
+                            structure checks are measured against it, and when it
+                            silently read "Other" every one of them went quiet
+                            with nothing on screen to say why. */}
+                        <span>
+                          {engine.stats
+                            ? `${currentDocument?.type ?? 'Other'} · ${engine.stats.sentences} sentences · ${engine.stats.checks} checks`
+                            : '—'}
+                        </span>
                       </div>
                     </div>
                     <div className="editor-review-heading">
@@ -1025,6 +1051,11 @@ function Editor() {
                               {issue.suggestion && (
                                 <button type="button" onClick={() => addHeading(issue)} className="editor-issue-action action-fix">Add “{issue.suggestion.title}” heading</button>
                               )}
+                              {issue.outline?.length > 0 && (
+                                <button type="button" onClick={() => addOutline(issue)} className="editor-issue-action action-fix">
+                                  Add all {issue.outline.length} headings
+                                </button>
+                              )}
                               <button type="button" onClick={() => engine.goToIssue(issue)} className="editor-issue-action action-source">Show me</button>
                               <button type="button" onClick={() => ignoreIssue(issue)} className="editor-issue-action action-ignore">Ignore</button>
                             </div>
@@ -1032,13 +1063,21 @@ function Editor() {
                         );
                       })}
                       {issueCount === 0 && (
+                        /* Three states, not two: "Starting the engine" used to
+                           sit here for ever when the engine had in fact failed. */
                         <div className="editor-no-issues">
-                          <CheckCircle2 size={20} />
-                          <strong>{engine.status === 'ready' ? 'All clear for now' : 'Starting the engine'}</strong>
+                          {engine.status === 'off' ? <TriangleAlert size={20} /> : <CheckCircle2 size={20} />}
+                          <strong>
+                            {engine.status === 'ready' ? 'All clear for now'
+                              : engine.status === 'off' ? 'The checks are not running'
+                              : 'Starting the engine'}
+                          </strong>
                           <span>
                             {engine.status === 'ready'
                               ? 'DocuMend found no contradictions or repeated sentences.'
-                              : 'The checks begin as soon as the engine is ready.'}
+                              : engine.status === 'off'
+                                ? `The engine could not start, so nothing is being checked. ${engine.engineReason || 'Reloading the page usually fixes it.'}`
+                                : 'The checks begin as soon as the engine is ready.'}
                           </span>
                         </div>
                       )}
