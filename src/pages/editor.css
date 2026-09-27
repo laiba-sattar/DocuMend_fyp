@@ -248,6 +248,12 @@
 .editor-utility-tabs::-webkit-scrollbar {
   display: none;
 }
+/* overflow-x: auto above would also clip the File menu, which drops below this
+   row. The tabs wrap on narrow screens instead of scrolling. */
+.editor-mode-tabs {
+  overflow: visible;
+  flex-wrap: wrap;
+}
 .editor-file-menu-wrap {
   position: relative;
   flex: 0 0 auto;
@@ -305,6 +311,86 @@
 }
 .editor-file-menu .editor-file-menu-danger svg {
   color: #c3654e;
+}
+/* Export opens a flyout to the right on hover or keyboard focus. */
+.editor-file-menu-group {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.editor-file-menu .editor-file-menu-flyout {
+  display: none;
+  top: -6px;
+  left: calc(100% - 2px); /* overlaps the parent slightly, so the pointer never crosses a gap */
+  width: 172px;
+}
+.editor-file-menu-group:hover > .editor-file-menu-flyout,
+.editor-file-menu-group:focus-within > .editor-file-menu-flyout {
+  display: flex;
+}
+/* Short or narrow windows: the menu scrolls, and the flyout opens inline
+   (a scrolling box would clip a flyout that sticks out of it). */
+@media (max-width: 640px), (max-height: 700px) {
+  .editor-file-menu {
+    max-height: calc(100vh - 170px);
+    overflow-y: auto;
+  }
+  .editor-file-menu .editor-file-menu-flyout {
+    position: static;
+    width: auto;
+    margin: 2px 0 2px 14px;
+    padding: 0 0 0 6px;
+    border: 0;
+    border-left: 2px solid #e6ddce;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+}
+.editor-file-menu button svg.is-open {
+  transform: rotate(90deg);
+}
+.editor-file-menu-sub {
+  display: flex;
+  flex-direction: column;
+  margin: 2px 0 2px 14px;
+  padding-left: 6px;
+  border-left: 2px solid #e6ddce;
+}
+.editor-file-menu-sub button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.editor-file-menu-note {
+  margin: 4px 8px;
+  color: #a29a8b;
+  font-size: 10px;
+}
+.dash-dark .editor-file-menu-sub {
+  border-color: #456253;
+}
+
+/* Document details dialog */
+.editor-details {
+  margin: 20px 0 0;
+}
+.editor-details-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--dash-line);
+  font-size: 12px;
+}
+.editor-details-row dt {
+  color: var(--dash-ink-soft);
+}
+.editor-details-row dd {
+  margin: 0;
+  font-weight: 600;
+  text-align: right;
+  overflow-wrap: anywhere;
 }
 .editor-mode-tab {
   display: inline-flex;

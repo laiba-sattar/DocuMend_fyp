@@ -32,17 +32,21 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   Cloud,
   Copy,
+  Download,
   Eraser,
   FileCheck2,
   FilePlus2,
   Files,
   FileText,
+  FolderInput,
   FolderOpen,
   Highlighter,
   History,
   ImagePlus,
+  Info,
   IndentDecrease,
   IndentIncrease,
   Italic,
@@ -57,6 +61,7 @@ import {
   Maximize2,
   MessageSquare,
   MoreHorizontal,
+  Pencil,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
@@ -76,6 +81,7 @@ import {
   Subscript,
   Superscript,
   Table2,
+  Trash2,
   TriangleAlert,
   Type,
   Underline,
@@ -98,19 +104,23 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import {
   DOCUMENT_TYPES,
   createDocument as saveNewDocument,
+  deleteDocument,
   getDocument,
   listDocuments,
+  renameDocument,
   setDocumentIssues,
   setDocumentStatus,
   setDocumentType,
   updateDocument,
 } from '../storage/documents';
 import { clockTime, countWords, pageLabel, pagesFor } from '../storage/format';
-import { maybeAutoVersion } from '../storage/versions';
+import { createVersion, maybeAutoVersion } from '../storage/versions';
+import { createFolder, deleteFolder, listFolderOptions } from '../storage/folders';
 import { buildExtensions } from '../editor/extensions';
 import { findRanges, replaceAll } from '../editor/highlights';
-import { IMPORT_ACCEPT, importFile } from '../editor/importers';
+import { IMPORT_ACCEPT, IMPORT_EXTENSIONS, importFile } from '../editor/importers';
 import { exportDocx, exportTxt, printDocument } from '../editor/exporters';
+import FileDialog from '../editor/FileDialog';
 import HomeRibbon from '../editor/HomeRibbon';
 import { useEngine } from '../engine/useEngine';
 
@@ -201,6 +211,10 @@ function Editor() {
   const [pageLayout, setPageLayout] = useState('standard');
   const [documentSearch, setDocumentSearch] = useState('');
   const [showFileMenu, setShowFileMenu] = useState(false);
+  const [showRecent, setShowRecent] = useState(false);
+  // Which File-menu dialog is open: 'rename' | 'saveAs' | 'move' | 'version' | 'details' | null.
+  const [fileDialog, setFileDialog] = useState(null);
+  const folderOptions = useLiveQuery(listFolderOptions, []) ?? [];
   const [heatmapEnabled, setHeatmapEnabled] = useState(true);
   const [documentPanelExpanded, setDocumentPanelExpanded] = useState(true);
   const [findMatches, setFindMatches] = useState(0);
@@ -214,6 +228,7 @@ function Editor() {
   const onEditorUpdateRef = useRef(() => {});
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
+  const fileActionsRef = useRef({}); // the latest File-menu actions, for keyboard shortcuts
 
   const currentDocument = documents.find((doc) => doc.id === selectedId) ?? null;
 
@@ -387,9 +402,21 @@ function Editor() {
     const handleShortcut = (event) => {
       if (!(event.metaKey || event.ctrlKey)) return;
       const key = event.key.toLowerCase();
-      if (key === 's') {
+      // Ctrl+N is not here on purpose: browsers keep it for "new window".
+      if (key === 's' && event.shiftKey) {
+        event.preventDefault();
+        fileActionsRef.current.saveAs?.();
+      } else if (key === 's') {
         event.preventDefault();
         saveNow().then(() => setToast('Document saved'));
+      }
+      if (key === 'o') {
+        event.preventDefault();
+        fileActionsRef.current.openFile?.();
+      }
+      if (key === 'p') {
+        event.preventDefault();
+        fileActionsRef.current.print?.();
       }
       if (key === 'f') {
         event.preventDefault();
@@ -542,7 +569,9 @@ function Editor() {
       if (format === 'docx') await exportDocx(currentTitle(), editor.getJSON());
       else if (format === 'txt') exportTxt(currentTitle(), editor.getText({ blockSeparator: '\n\n' }));
       else printDocument(currentTitle(), editor.getHTML());
-      announce(format === 'pdf' ? 'Choose "Save as PDF" in the print window' : `Saved "${currentTitle()}.${format}" to your Downloads`);
+      if (format === 'pdf') announce('Choose "Save as PDF" in the print window');
+      else if (format === 'print') announce('Print window opened');
+      else announce(`Saved "${currentTitle()}.${format}" to your Downloads`);
     } catch (error) {
       console.error(error);
       announce('The export did not work. Try again, or export as .txt.');
@@ -573,29 +602,155 @@ function Editor() {
     }
   };
 
-  /** Makes a copy of the open document and switches to it. */
-  const makeCopy = async () => {
+  /**
+   * Copies the open document into a new one and switches to it.
+   * Save as and Make a copy are this same thing with different defaults.
+   */
+  const copyInto = async ({ title, type, folderId, doneMessage }) => {
     if (!canEdit()) return;
-    await saveNow();
-    const source = await getDocument(loadedIdRef.current);
-    if (!source) return;
-    const copy = await saveNewDocument({
-      title: `${source.title} (copy)`,
-      type: source.type,
-      folderId: source.folderId,
-      source: source.source ?? 'created', // a copy of an imported file is still an imported file
-    });
-    await updateDocument(copy.id, { content: source.content, wordCount: source.wordCount, format: source.format });
-    await changeDocument(copy.id);
-    announce('Copy created and opened');
+    try {
+      await saveNow();
+      const source = await getDocument(loadedIdRef.current);
+      if (!source) return;
+      const copy = await saveNewDocument({
+        title,
+        type: type ?? source.type,
+        folderId: folderId ?? source.folderId,
+        source: source.source ?? 'created', // a copy of an imported file is still an imported file
+      });
+      await updateDocument(copy.id, { content: source.content, wordCount: source.wordCount, format: source.format });
+      await changeDocument(copy.id);
+      announce(doneMessage);
+    } catch (error) {
+      console.error(error);
+      announce(error?.code === 'plan_limit' ? error.message : 'The copy could not be saved.');
+    }
   };
 
-  const handleOpenFolder = (files) => {
-    const file = files?.[0];
-    if (!file) return;
-    const folderName = file.webkitRelativePath?.split('/')[0] || 'folder';
-    announce(`${folderName} opened with ${files.length} files`);
+  const makeCopy = () => copyInto({ title: `${currentTitle()} (copy)`, doneMessage: 'Copy created and opened' });
+
+  /**
+   * Imports every .docx / .txt / .md file in a chosen folder into a new
+   * folder of the same name. Sub-folders are flattened into it. The plan's
+   * document limit stops the import part-way, and the message says so.
+   */
+  const handleOpenFolder = async (fileList) => {
+    if (importing) return;
+    const all = Array.from(fileList ?? []);
+    if (!all.length) return;
+    const folderName = all[0].webkitRelativePath?.split('/')[0] || 'Imported files';
+    const supported = all.filter((file) => IMPORT_EXTENSIONS.test(file.name));
+    if (!supported.length) {
+      announce(`“${folderName}” has no .docx, .txt or .md files to import.`);
+      return;
+    }
+
+    setImporting(true);
+    announce(`Importing ${supported.length} ${supported.length === 1 ? 'file' : 'files'} from “${folderName}”…`);
+    let imported = 0;
+    let failed = 0;
+    let stoppedByPlan = '';
+    let firstId = null;
+    try {
+      await saveNow();
+      const folder = await createFolder({ name: folderName });
+      for (const file of supported) {
+        try {
+          const data = await importFile(file);
+          const doc = await saveNewDocument({ title: data.title, source: 'imported', folderId: folder.id });
+          await updateDocument(doc.id, { content: data.html, wordCount: data.wordCount, format: data.format });
+          firstId ??= doc.id;
+          imported += 1;
+        } catch (error) {
+          if (error?.code === 'plan_limit') {
+            stoppedByPlan = error.message;
+            break;
+          }
+          failed += 1;
+        }
+      }
+      if (!imported) {
+        await deleteFolder(folder.id); // nothing came in, so no empty folder is left behind
+        announce(stoppedByPlan || 'None of those files could be imported.');
+        return;
+      }
+      await changeDocument(firstId);
+      const notes = [
+        `Imported ${imported} of ${supported.length} into “${folderName}”.`,
+        failed ? `${failed} could not be read.` : '',
+        stoppedByPlan,
+      ].filter(Boolean);
+      announce(notes.join(' '));
+    } catch (error) {
+      console.error(error);
+      announce('That folder could not be imported.');
+    } finally {
+      setImporting(false);
+    }
   };
+
+  /** Opens one of the File-menu dialogs, after writing any unsaved typing so it shows current data. */
+  const openFileDialog = async (kind) => {
+    if (!canEdit()) {
+      announce('Open a document first.');
+      return;
+    }
+    await saveNow();
+    setFileDialog(kind);
+  };
+
+  const submitFileDialog = async ({ name, type, folderId, label }) => {
+    const kind = fileDialog;
+    const record = currentRecord;
+    setFileDialog(null);
+    if (!record) return;
+    try {
+      if (kind === 'rename') {
+        await renameDocument(record.id, name);
+        announce(`Renamed to “${name}”`);
+      } else if (kind === 'move') {
+        if (folderId !== record.folderId) await updateDocument(record.id, { folderId });
+        announce(`Moved to “${folderOptions.find((folder) => folder.id === folderId)?.name ?? 'Root level'}”`);
+      } else if (kind === 'version') {
+        const version = await createVersion(record.id, { kind: 'manual', label });
+        announce(`Version v${version.number} saved`);
+      } else if (kind === 'saveAs') {
+        await copyInto({ title: name, type, folderId, doneMessage: `Saved as “${name}”` });
+      }
+    } catch (error) {
+      console.error(error);
+      announce('That could not be saved.');
+    }
+  };
+
+  /** Deletes the open document and its versions, then leaves the editor. */
+  const deleteCurrent = async () => {
+    if (!currentRecord) {
+      announce('Open a document first.');
+      return;
+    }
+    const sure = window.confirm(
+      `Delete “${currentRecord.title}” and its saved versions?\n\n`
+      + 'The text is stored in this browser only, so this cannot be undone.',
+    );
+    if (!sure) return;
+    try {
+      dirtyIdRef.current = null; // the autosave must not write it back
+      await deleteDocument(currentRecord.id);
+      navigate('/documents');
+    } catch (error) {
+      console.error(error);
+      announce('That document could not be deleted.');
+    }
+  };
+
+  useEffect(() => {
+    fileActionsRef.current = {
+      openFile: () => fileInputRef.current?.click(),
+      saveAs: () => openFileDialog('saveAs'),
+      print: () => handleExport('print'),
+    };
+  });
 
   /** Applies one of the engine's one-click fixes. */
   const applyRepair = (issue, repair) => {
@@ -847,7 +1002,7 @@ function Editor() {
                 <div className="editor-file-menu-wrap" onPointerDown={(event) => event.stopPropagation()}>
                   <button
                     type="button"
-                    onClick={() => setShowFileMenu((value) => !value)}
+                    onClick={() => { setShowFileMenu((value) => !value); setShowRecent(false); }}
                     className={`editor-mode-tab editor-file-tab ${showFileMenu ? 'is-active' : ''}`}
                     aria-expanded={showFileMenu}
                     aria-haspopup="menu"
@@ -856,22 +1011,46 @@ function Editor() {
                   </button>
                   {showFileMenu && (
                     <div className="editor-file-menu" role="menu">
-                      <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); setModal('document'); }}><FilePlus2 size={14} /><span>New document</span><kbd>Ctrl N</kbd></button>
+                      <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); setModal('document'); }}><FilePlus2 size={14} /><span>New document</span></button>
                       <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); fileInputRef.current?.click(); }}><FileText size={14} /><span>Open file…</span><kbd>Ctrl O</kbd></button>
                       <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); folderInputRef.current?.click(); }}><FolderOpen size={14} /><span>Open folder…</span></button>
-                      <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); navigate('/documents'); }}><Files size={14} /><span>Open recent</span></button>
+                      <button type="button" role="menuitem" aria-expanded={showRecent} onClick={() => setShowRecent((value) => !value)}><Files size={14} /><span>Open recent</span><ChevronRight size={12} className={showRecent ? 'is-open' : ''} /></button>
+                      {showRecent && (
+                        <div className="editor-file-menu-sub">
+                          {documents.filter((doc) => doc.id !== selectedId).slice(0, 6).map((doc) => (
+                            <button key={doc.id} type="button" role="menuitem" onClick={() => { setShowFileMenu(false); changeDocument(doc.id); }}>
+                              <span>{doc.title}</span>
+                            </button>
+                          ))}
+                          {documents.filter((doc) => doc.id !== selectedId).length === 0 && (
+                            <p className="editor-file-menu-note">No other documents yet.</p>
+                          )}
+                          <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); navigate('/documents'); }}><span>All documents…</span></button>
+                        </div>
+                      )}
                       <div className="editor-file-menu-divider" />
                       <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); saveAndAnnounce('Document saved'); }}><Save size={14} /><span>Save</span><kbd>Ctrl S</kbd></button>
-                      <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); saveAndAnnounce('Document saved'); }}><Copy size={14} /><span>Save as…</span><kbd>Ctrl Shift S</kbd></button>
+                      <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); openFileDialog('saveAs'); }}><Copy size={14} /><span>Save as…</span><kbd>Ctrl Shift S</kbd></button>
+                      <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); openFileDialog('version'); }}><Bookmark size={14} /><span>Save version…</span></button>
                       <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); makeCopy(); }}><FilePlus2 size={14} /><span>Make a copy</span></button>
                       <div className="editor-file-menu-divider" />
-                      <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); handleExport('pdf'); }}><Printer size={14} /><span>Export as PDF</span></button>
-                      <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); handleExport('docx'); }}><FileText size={14} /><span>Export as DOCX</span></button>
-                      <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); handleExport('txt'); }}><FileText size={14} /><span>Export as TXT</span></button>
-                      <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); handleExport('pdf'); }}><Printer size={14} /><span>Print</span></button>
+                      <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); openFileDialog('rename'); }}><Pencil size={14} /><span>Rename…</span></button>
+                      <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); openFileDialog('move'); }}><FolderInput size={14} /><span>Move to folder…</span></button>
+                      <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); openFileDialog('details'); }}><Info size={14} /><span>Document details</span></button>
                       <div className="editor-file-menu-divider" />
-                      <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); navigate(selectedId ? `/version?doc=${selectedId}` : '/version'); }}><History size={14} /><span>Version history</span></button>
-                      <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); navigate('/documents'); }} className="editor-file-menu-danger"><X size={14} /><span>Close editor</span><kbd>Esc</kbd></button>
+                      {/* Opens on hover or keyboard focus (see .editor-file-menu-group in editor.css). */}
+                      <div className="editor-file-menu-group">
+                        <button type="button" role="menuitem" aria-haspopup="menu"><Download size={14} /><span>Export</span><ChevronRight size={12} /></button>
+                        <div className="editor-file-menu editor-file-menu-flyout" role="menu" aria-label="Export as">
+                          <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); handleExport('pdf'); }}><Printer size={14} /><span>PDF</span></button>
+                          <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); handleExport('docx'); }}><FileText size={14} /><span>Word (.docx)</span></button>
+                          <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); handleExport('txt'); }}><FileText size={14} /><span>Plain text (.txt)</span></button>
+                        </div>
+                      </div>
+                      <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); handleExport('print'); }}><Printer size={14} /><span>Print</span><kbd>Ctrl P</kbd></button>
+                      <div className="editor-file-menu-divider" />
+                      <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); deleteCurrent(); }} className="editor-file-menu-danger"><Trash2 size={14} /><span>Delete document</span></button>
+                      <button type="button" role="menuitem" onClick={() => { setShowFileMenu(false); navigate('/documents'); }}><X size={14} /><span>Close editor</span></button>
                     </div>
                   )}
                 </div>
@@ -901,7 +1080,7 @@ function Editor() {
             </div>
 
             <input ref={fileInputRef} type="file" hidden accept={IMPORT_ACCEPT} onChange={(event) => { handleOpenFile(event.target.files); event.target.value = ''; }} />
-            <input ref={folderInputRef} type="file" hidden multiple webkitdirectory="" directory="" onChange={(event) => handleOpenFolder(event.target.files)} />
+            <input ref={folderInputRef} type="file" hidden multiple webkitdirectory="" directory="" onChange={(event) => { const picked = Array.from(event.target.files); event.target.value = ''; handleOpenFolder(picked); }} />
 
             {/* The ribbon itself */}
             <div className="editor-toolkit" aria-label={`${activeTool} ribbon`}>
@@ -1299,6 +1478,17 @@ function Editor() {
         onSubmit={createDocument}
         onLogout={() => { setModal(null); navigate('/'); }}
       />
+
+      {fileDialog && currentRecord && (
+        <FileDialog
+          key={`${fileDialog}-${currentRecord.id}`}
+          kind={fileDialog}
+          doc={currentRecord}
+          folders={folderOptions}
+          onClose={() => setFileDialog(null)}
+          onSubmit={submitFileDialog}
+        />
+      )}
 
       {toast && <div className="dash-toast" role="status">{toast}</div>}
     </div>

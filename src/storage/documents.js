@@ -90,6 +90,13 @@ export async function updateDocument(id, changes) {
   return result;
 }
 
+/** Gives the document a new title. The account is told through updateDocument. */
+export async function renameDocument(id, title) {
+  const clean = (title ?? '').trim();
+  if (!clean) throw new Error('A document needs a name.');
+  return updateDocument(id, { title: clean });
+}
+
 /**
  * Changes what kind of document this is — Thesis, Report, Legal…
  *
