@@ -115,9 +115,14 @@ pub fn numbers_in(sentence: &Sentence) -> Vec<NumberFact> {
 
         // ---- what comes after: %, a multiplier, then maybe a unit word ----
         let mut span_end = j;
-        if chars.get(j) == Some(&'%') {
+        // "45%" and "45 %" are the same thing; some house styles put a space before the sign.
+        let mut sign = j;
+        while chars.get(sign).map(|c| c.is_whitespace()).unwrap_or(false) {
+            sign += 1;
+        }
+        if chars.get(sign) == Some(&'%') {
             unit = "%".to_string();
-            span_end = j + 1;
+            span_end = sign + 1;
         } else {
             let (after_word, after_end) = word_after(&chars, j);
             let lower = after_word.to_lowercase();
@@ -224,6 +229,15 @@ mod tests {
         assert_eq!(found[0].value, 45000.0);
         assert_eq!(found[0].unit, "PKR");
         assert_eq!(found[0].raw, "PKR 45,000");
+    }
+
+    #[test]
+    fn a_space_before_the_percent_sign_still_counts_as_a_percentage() {
+        let found = facts("Accuracy reached 92 % in testing.");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].value, 92.0);
+        assert_eq!(found[0].unit, "%");
+        assert_eq!(found[0].raw, "92 %");
     }
 
     #[test]
