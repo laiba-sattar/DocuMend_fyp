@@ -75,9 +75,15 @@ pub fn numbers_in(sentence: &Sentence) -> Vec<NumberFact> {
     }
     at.push(position);
 
+    let spans = citation_spans(&chars);
     let mut facts = Vec::new();
     let mut i = 0usize;
     while i < chars.len() {
+        // The digits of a citation like [3] or [2, 4] are reference numbers, not figures.
+        if let Some(&(_, to)) = spans.iter().find(|(from, to)| i >= *from && i < *to) {
+            i = to;
+            continue;
+        }
         if !chars[i].is_ascii_digit() {
             i += 1;
             continue;
@@ -168,6 +174,33 @@ pub fn numbers_in(sentence: &Sentence) -> Vec<NumberFact> {
     facts
 }
 
+/// Where the numbered citations ("[3]", "[2, 4]", "[3-6]") sit, as [from, to)
+/// character ranges. references.rs reads the same brackets the same way.
+fn citation_spans(chars: &[char]) -> Vec<(usize, usize)> {
+    let mut spans = Vec::new();
+    let mut i = 0usize;
+    while i < chars.len() {
+        if chars[i] != '[' {
+            i += 1;
+            continue;
+        }
+        let mut j = i + 1;
+        while j < chars.len()
+            && j - i <= 40
+            && (chars[j].is_ascii_digit() || matches!(chars[j], ' ' | ',' | '-' | '\u{2013}'))
+        {
+            j += 1;
+        }
+        if j < chars.len() && chars[j] == ']' && j > i + 1 && chars[i + 1..j].iter().any(|c| c.is_ascii_digit()) {
+            spans.push((i, j + 1));
+            i = j + 1;
+            continue;
+        }
+        i += 1;
+    }
+    spans
+}
+
 fn is_unit_word(word: &str) -> bool {
     !word.is_empty()
         && word.chars().all(|c| c.is_alphabetic())
@@ -229,6 +262,20 @@ mod tests {
         assert_eq!(found[0].value, 45000.0);
         assert_eq!(found[0].unit, "PKR");
         assert_eq!(found[0].raw, "PKR 45,000");
+    }
+
+    #[test]
+    fn citation_numbers_are_not_figures() {
+        let found = facts("The model reached 92% accuracy [3] and was fast [2, 5] on 40 samples [7-9].");
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].value, 92.0);
+        assert_eq!(found[1].value, 40.0);
+    }
+
+    #[test]
+    fn a_trailing_comma_is_not_part_of_the_number() {
+        let found = facts("In 2020, the budget rose.");
+        assert_eq!(found[0].raw, "2020");
     }
 
     #[test]

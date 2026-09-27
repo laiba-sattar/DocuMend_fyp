@@ -160,6 +160,37 @@ pub fn negation(text: &str) -> Option<String> {
         .find(|w| NEGATIONS.contains(&w.as_str()))
 }
 
+/// One non-empty line of the document. The editor starts a new line for every
+/// block (paragraph, list item, heading), so a line is one of those.
+#[derive(Debug, Clone)]
+pub struct Line {
+    /// Where the trimmed text starts, in UTF-16 units.
+    pub start: usize,
+    /// Where it ends (exclusive), in UTF-16 units.
+    pub end: usize,
+    pub text: String,
+}
+
+/// The document's lines, trimmed, with UTF-16 offsets. Blank lines are skipped.
+pub fn lines(text: &str) -> Vec<Line> {
+    let units = |s: &str| s.chars().map(|c| c.len_utf16()).sum::<usize>();
+    let mut out = Vec::new();
+    let mut position = 0usize; // UTF-16 offset where the current raw line begins
+    for raw in text.split('\n') {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            let lead = units(raw) - units(raw.trim_start());
+            out.push(Line {
+                start: position + lead,
+                end: position + lead + units(trimmed),
+                text: trimmed.to_string(),
+            });
+        }
+        position += units(raw) + 1; // the newline
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -15,8 +15,11 @@
 //! Run the tests (no internet needed):
 //!   cargo test --manifest-path engine/Cargo.toml
 
+pub mod citation_style;
 pub mod json;
+pub mod numbering;
 pub mod numbers;
+pub mod references;
 pub mod rules;
 pub mod structure;
 pub mod text;
@@ -48,7 +51,9 @@ pub struct Report {
 ///   `level<TAB>start<TAB>end<TAB>title`. Empty when the document has none.
 /// * `kind` — the document's type ("Thesis", "Report"…), used to know which
 ///   sections this kind of document usually has.
-pub fn analyze(document: &str, outline: &str, kind: &str) -> Report {
+/// * `style` — the citation style the writer chose ("APA", "MLA", "IEEE"), or
+///   empty for none. With one, the reference list is checked against it.
+pub fn analyze(document: &str, outline: &str, kind: &str, style: &str) -> Report {
     let sentences = text::split_sentences(document);
     let numbers = sentences
         .iter()
@@ -56,8 +61,16 @@ pub fn analyze(document: &str, outline: &str, kind: &str) -> Report {
         .sum();
     let headings = structure::parse_outline(outline);
 
+    let lines = text::lines(document);
+    let document_len: usize = document.chars().map(|c| c.len_utf16()).sum();
+
     let mut issues = rules::run(&sentences);
     issues.extend(structure::run(document, &headings, kind));
+    issues.extend(numbering::run(&headings, &lines));
+    issues.extend(references::run(document_len, &headings, &lines));
+    if let Some(style) = citation_style::Style::parse(style) {
+        issues.extend(citation_style::run(style, document_len, &headings, &lines));
+    }
 
     Report {
         stats: Stats {
@@ -65,16 +78,17 @@ pub fn analyze(document: &str, outline: &str, kind: &str) -> Report {
             words: text::words(document).len(),
             numbers,
             headings: headings.len(),
-            // 9 rules: 3 about the sentences, 6 about the structure.
-            checks: 9,
+            // 16 rules: 3 about the sentences, 6 about the structure, 1 about
+            // numbering, 3 about references and 3 about citation style.
+            checks: 16,
         },
         issues,
     }
 }
 
 /// The same as [`analyze`], as the JSON the browser reads.
-pub fn analyze_to_json(document: &str, outline: &str, kind: &str) -> String {
-    report_to_json(&analyze(document, outline, kind))
+pub fn analyze_to_json(document: &str, outline: &str, kind: &str, style: &str) -> String {
+    report_to_json(&analyze(document, outline, kind, style))
 }
 
 fn report_to_json(report: &Report) -> String {
@@ -162,10 +176,11 @@ mod browser {
     /// Analyses a document and returns the report as a JSON string.
     ///
     /// `outline` carries the document's headings (one per line:
-    /// `level<TAB>start<TAB>end<TAB>title`) and `kind` its type ("Thesis"…).
+    /// `level<TAB>start<TAB>end<TAB>title`), `kind` its type ("Thesis"…) and
+    /// `style` the citation style chosen ("APA", "MLA", "IEEE" or "").
     #[wasm_bindgen]
-    pub fn analyze_json(document: &str, outline: &str, kind: &str) -> String {
-        super::analyze_to_json(document, outline, kind)
+    pub fn analyze_json(document: &str, outline: &str, kind: &str, style: &str) -> String {
+        super::analyze_to_json(document, outline, kind, style)
     }
 
     /// The engine's version, shown in the editor's status bar.
@@ -181,7 +196,7 @@ mod tests {
 
     /// Most tests have no headings and no document type.
     fn plain(document: &str) -> Report {
-        analyze(document, "", "Other")
+        analyze(document, "", "Other", "")
     }
 
     #[test]
@@ -197,7 +212,7 @@ mod tests {
         assert_eq!(report.stats.sentences, 2);
         assert_eq!(report.stats.numbers, 2);
         assert_eq!(report.stats.headings, 0);
-        assert_eq!(report.stats.checks, 9);
+        assert_eq!(report.stats.checks, 16);
     }
 
     #[test]
@@ -207,6 +222,7 @@ mod tests {
              The lab equipment budget is PKR 32,000.",
             "",
             "Other",
+            "",
         );
         assert!(out.starts_with("{\"version\":"));
         assert!(out.contains("\"kind\":\"contradiction\""));
@@ -222,6 +238,7 @@ mod tests {
              The lab equipment budget is PKR 32,000.",
             "",
             "Other",
+            "",
         );
         // The conflict is still found, and every quote in the output is a JSON
         // quote — an unescaped one from the document would make the count odd.
@@ -234,7 +251,7 @@ mod tests {
         let document = "Introduction\nThe study covered 45 students on campus.\n\
                         Results\nThe campus study covered 32 students.";
         let outline = "1\t0\t12\tIntroduction\n1\t53\t60\tResults";
-        let report = analyze(document, outline, "Thesis");
+        let report = analyze(document, outline, "Thesis", "");
         assert_eq!(report.stats.headings, 2);
         assert!(report.issues.iter().any(|i| i.kind == "contradiction"));
         assert!(report.issues.iter().any(|i| i.kind == "structure"));
@@ -244,7 +261,7 @@ mod tests {
     fn a_missing_section_suggests_the_heading() {
         let document = "Introduction\nSome writing.\nResults\nMore writing.";
         let outline = "1\t0\t12\tIntroduction\n1\t28\t35\tResults";
-        let report = analyze(document, outline, "Thesis");
+        let report = analyze(document, outline, "Thesis", "");
         let hint = report
             .issues
             .iter()
