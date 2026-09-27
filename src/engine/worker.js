@@ -16,16 +16,21 @@
  */
 import { analyze as analyzeWithJs } from './fallback';
 
-/** Where wasm-pack puts the browser build. */
-const WASM_ENTRY = './pkg/documend_engine.js';
+/**
+ * Where wasm-pack puts the browser build. A glob rather than a plain import:
+ * when the folder is built, Vite bundles it (and its .wasm) into production;
+ * when it is not, the glob is simply empty and the JavaScript engine is used.
+ */
+const builtEngine = import.meta.glob('./pkg/documend_engine.js');
 
 let engine = null;
 
 async function loadEngine() {
   const started = performance.now();
   try {
-    // @vite-ignore keeps the bundler from failing when the file is not built yet.
-    const wasm = await import(/* @vite-ignore */ WASM_ENTRY);
+    const load = builtEngine['./pkg/documend_engine.js'];
+    if (!load) throw new Error('The Rust engine has not been built (src/engine/pkg is missing).');
+    const wasm = await load();
     await wasm.default();
     engine = {
       name: 'wasm',
