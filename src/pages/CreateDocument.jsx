@@ -95,7 +95,10 @@ export default function CreateDocument() {
     if (!typeTouched && defaultKind && TYPES.includes(defaultKind)) setType(defaultKind);
   }, [defaultKind, typeTouched]);
   const [query, setQuery] = useState('');
-  const [folder, setFolder] = useState('root');
+  // "New document" inside an open folder arrives here as ?folder=<id>.
+  const [folder, setFolder] = useState(
+    () => new URLSearchParams(window.location.search).get('folder') || 'root',
+  );
   const [saving, setSaving] = useState(false);
 
   // Real folders from IndexedDB; re-renders on its own when a folder is added.
@@ -297,7 +300,7 @@ export default function CreateDocument() {
 
                 {/* Analysis toggles */}
                 <div className="newdoc-field">
-                  <span className="newdoc-eyebrow">Run DDIE analysis on open</span>
+                  <span className="newdoc-eyebrow">Run ODIE analysis on open</span>
                   <div className="newdoc-checks">
                     {ANALYSES.map((option) => {
                       const on = checks.includes(option.id);

@@ -55,7 +55,10 @@ export default function CreateFolder() {
 
   const [name, setName] = useState(nameFromUrl);
   const [color, setColor] = useState('gold');
-  const [parent, setParent] = useState('root');
+  // "New folder" inside an open folder arrives here as ?parent=<id>.
+  const [parent, setParent] = useState(
+    () => new URLSearchParams(window.location.search).get('parent') || 'root',
+  );
 
   // Real folders from IndexedDB, so a new folder can sit inside an existing one.
   const parentOptions = useLiveQuery(listFolderOptions, []) ?? [ROOT_FOLDER];

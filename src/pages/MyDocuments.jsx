@@ -20,12 +20,15 @@
  *
  * Integrated with the shared ThemeContext for synchronized Light/Dark mode switching.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import './my-documents.css';
 import {
   CheckCircle2,
+  ChevronRight,
   Copy,
   FileText,
+  Folder,
+  FolderPlus,
   Laptop,
   LockKeyhole,
   Pencil,
@@ -46,7 +49,8 @@ import { useTheme } from '../components/ThemeContext';
 import { navigate } from '../router';
 import { usePreference } from '../settings/preferences';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { createDocument, deleteDocument, duplicateDocument, listDocuments, setDocumentStatus } from '../storage/documents';
+import { DOCUMENT_TYPES, createDocument, deleteDocument, duplicateDocument, listDocuments, setDocumentStatus } from '../storage/documents';
+import { deleteFolder, listFolders } from '../storage/folders';
 import { listRemote } from '../sync/metadata';
 import { formatModified, pageLabel, pagesFor } from '../storage/format';
 
@@ -85,12 +89,19 @@ function isImported(doc) {
   return (doc.format ?? 'DOCX') !== 'DOCX';
 }
 
-const categories = ['All', 'Academic', 'Legal', 'Researcher', 'Corporate', 'Draft'];
+/** The folder named in the address, or the top level. */
+function folderFromUrl() {
+  return new URLSearchParams(window.location.search).get('folder') || 'root';
+}
+
+// The same names the type picker uses (Thesis, Research paper, Legal, Report, Other).
+const typeFilters = ['All', ...DOCUMENT_TYPES];
 
 /** Shapes a stored document record into what DocumentCard draws. */
 function toCard(doc) {
   return {
     ...doc,
+    kind: doc.type ?? 'Other', // Thesis / Report / …; `type` below is the file format
     type: doc.format ?? 'DOCX',
     done: doc.status === 'done',
     modified: formatModified(doc.updatedAt),
@@ -111,7 +122,9 @@ function toElsewhereCard(row) {
     id: row.id,
     title: row.title,
     type: 'DOCX',
+    kind: row.type ?? 'Other',
     category: row.category ?? 'Draft',
+    folderId: row.folderId ?? 'root',
     tint: 'sage',
     status: 'elsewhere',
     elsewhere: true,
@@ -127,6 +140,25 @@ function toElsewhereCard(row) {
    Pieces
    ========================================================================== */
 
+/** One folder: click it to open it. Counts are what sits directly inside. */
+function FolderCard({ folder, documentCount, folderCount, onOpen }) {
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  return (
+    <button type="button" className="docs-folder-card dash-lift" onClick={onOpen}>
+      <span className={`docs-folder-icon dash-glyph-${folder.color ?? 'gold'}`} aria-hidden="true">
+        <Folder size={20} strokeWidth={2} />
+      </span>
+      <span className="docs-folder-copy">
+        <span className="docs-folder-name">{folder.name}</span>
+        <span className="docs-folder-meta">
+          {plural(documentCount, 'document')}
+          {folderCount > 0 ? ` · ${plural(folderCount, 'folder')}` : ''}
+        </span>
+      </span>
+    </button>
+  );
+}
+
 /**
  * One document.
  *
@@ -136,7 +168,7 @@ function toElsewhereCard(row) {
  * until the card is hovered or focused, and they are never offered for a
  * document that lives on another computer: this browser cannot reach its text.
  */
-function DocumentCard({ doc, onOpen, onDuplicate, onDelete, onToggleDone }) {
+function DocumentCard({ doc, folderName, onOpen, onDuplicate, onDelete, onToggleDone }) {
   return (
     <article className={`docs-card dash-lift${doc.elsewhere ? ' docs-card-elsewhere' : ''}`}>
       <button type="button" onClick={onOpen} className="docs-card-open">
@@ -175,6 +207,11 @@ function DocumentCard({ doc, onOpen, onDuplicate, onDelete, onToggleDone }) {
             ) : null}
           </span>
           <span className="docs-tags">
+            {folderName && (
+              <span className="docs-tag docs-tag-folder">
+                <Folder size={10} strokeWidth={2.2} /> {folderName}
+              </span>
+            )}
             {doc.tags.map((tag) => (
               <span key={tag.label} className={`docs-tag docs-tag-${tag.tone}`}>{tag.label}</span>
             ))}
@@ -233,7 +270,15 @@ function MyDocuments() {
   // Which of Home / Recent / Insert the strip is on. A tab, not a setting:
   // every visit starts at Home.
   const [view, setView] = useState('home');
-  const [activeCategory, setActiveCategory] = useState('All');
+  const [activeType, setActiveType] = useState('All');
+  // The folder being browsed, kept in the address (?folder=) so a refresh and
+  // the browser's Back button both land where the reader was.
+  const [openId, setOpenId] = useState(folderFromUrl);
+  useEffect(() => {
+    const sync = () => setOpenId(folderFromUrl());
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, []);
   // Kept in the browser's settings store, so the choice survives a reload
   // and is the same on every page.
   const [privacyMode, setPrivacyMode] = usePreference('privacyMode');
@@ -244,6 +289,7 @@ function MyDocuments() {
   const storedDocuments = useLiveQuery(listDocuments, []);
   // What the account has, as last heard from the server. Empty when signed out.
   const remoteDocuments = useLiveQuery(listRemote, []);
+  const savedFolders = useLiveQuery(listFolders, []);
   const loading = storedDocuments === undefined;
 
   const documents = useMemo(() => {
@@ -257,6 +303,38 @@ function MyDocuments() {
   }, [storedDocuments, remoteDocuments]);
 
   const elsewhereCount = documents.filter((doc) => doc.elsewhere).length;
+
+  const folderById = useMemo(
+    () => new Map((savedFolders ?? []).map((folder) => [folder.id, folder])),
+    [savedFolders],
+  );
+  // A folder id this browser has no folder for (made on another device, or
+  // deleted) counts as the root level, so nothing ever becomes unreachable.
+  const folderOf = useCallback(
+    (doc) => (folderById.has(doc.folderId) ? doc.folderId : 'root'),
+    [folderById],
+  );
+  const parentOf = useCallback(
+    (folder) => (folderById.has(folder.parentId) ? folder.parentId : 'root'),
+    [folderById],
+  );
+
+  // Browsing = the plain Home view with no search. Searching, Recent and
+  // Insert are flat lists across every folder, because a search that only
+  // looked inside one folder would hide the document being looked for.
+  const browsing = view === 'home' && !search.trim();
+  const currentId = openId === 'root' || folderById.has(openId) ? openId : 'root';
+  const currentFolder = folderById.get(currentId);
+
+  // Root > … > the open folder. The step limit guards against a parent loop.
+  const trail = [];
+  for (let node = currentFolder; node && trail.length < 20; node = folderById.get(parentOf(node))) {
+    trail.unshift(node);
+  }
+
+  const childFolders = (savedFolders ?? []).filter((folder) => parentOf(folder) === currentId);
+  const documentsIn = (id) => documents.filter((doc) => folderOf(doc) === id).length;
+  const foldersIn = (id) => (savedFolders ?? []).filter((folder) => parentOf(folder) === id).length;
 
   // Documents the engine has actually read. `issuesCheckedAt` is what separates
   // "no problems" from "never opened"; without it both read zero.
@@ -301,16 +379,17 @@ function MyDocuments() {
       // The tab comes first: it decides which documents are on the page at all.
       if (view === 'recent' && (doc.updatedAt ?? 0) < freshAfter) return false;
       if (view === 'insert' && !isImported(doc)) return false;
-      if (activeCategory !== 'All' && doc.category !== activeCategory) return false;
+      if (activeType !== 'All' && doc.kind !== activeType) return false;
+      if (browsing && folderOf(doc) !== currentId) return false;
       if (!normalized) return true;
-      const haystack = `${doc.title} ${doc.type} ${doc.category} ${doc.tags.map((tag) => tag.label).join(' ')}`;
+      const haystack = `${doc.title} ${doc.type} ${doc.kind} ${doc.tags.map((tag) => tag.label).join(' ')}`;
       return haystack.toLowerCase().includes(normalized);
     });
 
     // Sorted on a copy: `documents` is memoised from the live queries and must
     // not be reordered in place. Newest first, on every tab.
     return [...matching].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
-  }, [documents, search, activeCategory, view]);
+  }, [documents, search, activeType, view, browsing, currentId, folderOf]);
 
   /** What the strip says the tab is showing, in plain words. */
   const viewNote = view === 'recent'
@@ -362,9 +441,36 @@ function MyDocuments() {
     }
   };
 
+  const openFolder = (id) => {
+    window.history.pushState({}, '', id === 'root' ? '/documents' : `/documents?folder=${encodeURIComponent(id)}`);
+    setOpenId(id);
+    window.scrollTo(0, 0);
+  };
+
+  const removeFolder = async () => {
+    if (!currentFolder) return;
+    const up = folderById.get(parentOf(currentFolder))?.name ?? 'the top level';
+    const sure = window.confirm(
+      `Delete the folder “${currentFolder.name}”?\n\nNothing inside it is deleted. Its documents and folders move up to ${up}.`,
+    );
+    if (!sure) return;
+    try {
+      const movedTo = await deleteFolder(currentFolder.id);
+      openFolder(movedTo);
+      announce(`Folder “${currentFolder.name}” was deleted. Its contents moved up to ${up}.`);
+    } catch {
+      announce('That folder could not be deleted.');
+    }
+  };
+
   const selectNav = (label) => {
     const route = workspaceRoutes[label];
-    if (route && label !== 'My documents') {
+    if (label === 'My documents') {
+      openFolder('root');
+      setMobileSidebar(false);
+      return;
+    }
+    if (route) {
       navigate(route);
       return;
     }
@@ -387,7 +493,7 @@ function MyDocuments() {
     const title = value.trim();
     if (!title) return;
     try {
-      await createDocument({ title, type: 'Other' });
+      await createDocument({ title, type: 'Other', folderId: currentId });
       setModal(null);
       announce('New document created');
     } catch (error) {
@@ -458,15 +564,46 @@ function MyDocuments() {
             <p className="docs-tab-note">{viewNote}</p>
           </div>
 
-          {/* Heading + New Document */}
+          {/* Where you are: My Documents › folder › sub-folder */}
+          {browsing && currentFolder && (
+            <nav className="docs-crumbs dash-rise dash-d2" aria-label="Folder path">
+              <button type="button" onClick={() => openFolder('root')}>My Documents</button>
+              {trail.map((node, index) => (
+                <span key={node.id} className="docs-crumb">
+                  <ChevronRight size={13} />
+                  {index === trail.length - 1 ? (
+                    <strong aria-current="page">{node.name}</strong>
+                  ) : (
+                    <button type="button" onClick={() => openFolder(node.id)}>{node.name}</button>
+                  )}
+                </span>
+              ))}
+            </nav>
+          )}
+
+          {/* Heading + actions */}
           <div className="docs-title-row dash-rise dash-d2">
             <div>
-              <p className="docs-kicker">Your private library</p>
-              <h1 className="docs-title dash-serif">My Documents</h1>
+              <p className="docs-kicker">{browsing && currentFolder ? 'Folder' : 'Your private library'}</p>
+              <h1 className="docs-title dash-serif">{browsing && currentFolder ? currentFolder.name : 'My Documents'}</h1>
             </div>
-            <button type="button" onClick={() => setModal('document')} className="docs-new-btn">
-              <Plus size={15} strokeWidth={2.4} /> New Document
-            </button>
+            <div className="docs-title-actions">
+              {browsing && currentFolder && (
+                <button type="button" onClick={removeFolder} className="docs-ghost-btn is-danger">
+                  <Trash2 size={14} /> Delete folder
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => navigate(`/create-folder${currentId === 'root' ? '' : `?parent=${encodeURIComponent(currentId)}`}`)}
+                className="docs-ghost-btn"
+              >
+                <FolderPlus size={14} /> New folder
+              </button>
+              <button type="button" onClick={() => setModal('document')} className="docs-new-btn">
+                <Plus size={15} strokeWidth={2.4} /> New Document
+              </button>
+            </div>
           </div>
 
           {/* Library search */}
@@ -481,17 +618,36 @@ function MyDocuments() {
             />
           </label>
 
+          {/* Folders come first: the top level is the reader's folders, and
+              opening one shows what is inside it. */}
+          {browsing && childFolders.length > 0 && (
+            <section className="dash-rise dash-d3" aria-label="Folders">
+              <h2 className="docs-section-title">Folders</h2>
+              <div className="docs-folder-grid">
+                {childFolders.map((folder) => (
+                  <FolderCard
+                    key={folder.id}
+                    folder={folder}
+                    documentCount={documentsIn(folder.id)}
+                    folderCount={foldersIn(folder.id)}
+                    onOpen={() => openFolder(folder.id)}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
           {/* Category chips */}
-          <div className="docs-chips dash-rise dash-d3" role="group" aria-label="Filter by category">
-            {categories.map((category) => (
+          <div className="docs-chips dash-rise dash-d3" role="group" aria-label="Filter by document type">
+            {typeFilters.map((option) => (
               <button
-                key={category}
+                key={option}
                 type="button"
-                aria-pressed={activeCategory === category}
-                onClick={() => setActiveCategory(category)}
-                className={`docs-chip ${activeCategory === category ? 'is-active' : ''}`}
+                aria-pressed={activeType === option}
+                onClick={() => setActiveType(option)}
+                className={`docs-chip ${activeType === option ? 'is-active' : ''}`}
               >
-                {category}
+                {option}
               </button>
             ))}
           </div>
@@ -507,6 +663,12 @@ function MyDocuments() {
             ))}
           </div>
 
+          {browsing && childFolders.length > 0 && filteredDocuments.length > 0 && (
+            <h2 className="docs-section-title dash-rise dash-d4">
+              {currentId === 'root' ? 'Documents not in a folder' : 'Documents'}
+            </h2>
+          )}
+
           {/* Document card grid */}
           {filteredDocuments.length > 0 ? (
             <div className="docs-grid dash-rise dash-d4">
@@ -514,6 +676,7 @@ function MyDocuments() {
                 <DocumentCard
                   key={doc.id}
                   doc={doc}
+                  folderName={browsing ? undefined : folderById.get(doc.folderId)?.name}
                   onDuplicate={copyDocument}
                   onDelete={removeDocument}
                   onToggleDone={toggleDone}
@@ -529,12 +692,20 @@ function MyDocuments() {
                 />
               ))}
             </div>
-          ) : loading ? null : documents.length === 0 ? (
+          ) : loading ? null : documents.length === 0 && (savedFolders ?? []).length === 0 ? (
             <div className="docs-empty dash-rise dash-d4">
               <FileText size={22} />
               <p>No documents yet. Create one and it stays here, even after you reload.</p>
               <button type="button" onClick={() => setModal('document')}>
                 Create your first document
+              </button>
+            </div>
+          ) : browsing && activeType === 'All' && childFolders.length > 0 ? null : browsing && activeType === 'All' && currentId !== 'root' ? (
+            <div className="docs-empty dash-rise dash-d4">
+              <Folder size={22} />
+              <p>This folder is empty. Add a document or a folder to it.</p>
+              <button type="button" onClick={() => setModal('document')}>
+                New document in “{currentFolder?.name}”
               </button>
             </div>
           ) : (
@@ -544,7 +715,7 @@ function MyDocuments() {
                   your search" when the search box is blank is a small lie the
                   reader has to work out for themselves. */}
               <p>
-                {search || activeCategory !== 'All'
+                {search || activeType !== 'All'
                   ? `Nothing here matches${search ? ` "${search}"` : ' that filter'}`
                   : VIEWS.find((item) => item.id === view)?.empty}
               </p>
@@ -552,7 +723,8 @@ function MyDocuments() {
                 type="button"
                 onClick={() => {
                   setSearch('');
-                  setActiveCategory('All');
+                  setActiveType('All');
+                  openFolder('root');
                   setView('home');
                 }}
               >
