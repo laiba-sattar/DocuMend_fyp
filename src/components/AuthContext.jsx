@@ -11,7 +11,7 @@
  * rather than flashing the login page at someone who is in fact signed in.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { api, hasStoredSession } from '../api/client';
+import { api, cachedUser, hasStoredSession } from '../api/client';
 import { startSync, stopSync } from '../sync/metadata';
 import { setCurrentTier } from '../plans/limits';
 
@@ -20,6 +20,8 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [status, setStatus] = useState(hasStoredSession() ? 'checking' : 'signed-out');
+  // Signed in from the saved profile because the server could not be reached.
+  const [offline, setOffline] = useState(false);
 
   useEffect(() => {
     if (status !== 'checking') return undefined;
@@ -30,15 +32,50 @@ export function AuthProvider({ children }) {
         setUser(account);
         setStatus(account ? 'signed-in' : 'signed-out');
       })
-      .catch(() => {
+      .catch((error) => {
         if (!alive) return;
-        // The server may simply be down; the session is not necessarily gone,
-        // but there is nothing to show until it answers.
+        // No connection is not the same as no session. If this device knows
+        // who was signed in, let them into the workspace: their documents are
+        // right here, and the server is asked again when it can be reached.
+        const remembered = error?.code === 'offline' ? cachedUser() : null;
+        if (remembered) {
+          setUser(remembered);
+          setOffline(true);
+          setStatus('signed-in');
+          return;
+        }
         setUser(null);
         setStatus('signed-out');
       });
     return () => { alive = false; };
   }, [status]);
+
+  // Back online after starting up offline: confirm the session is still good.
+  useEffect(() => {
+    if (!offline) return undefined;
+    let alive = true;
+    const confirm = () => {
+      api.me()
+        .then((account) => {
+          if (!alive) return;
+          setUser(account);
+          setOffline(false);
+          if (!account) setStatus('signed-out');
+        })
+        .catch((error) => {
+          if (!alive || error?.code === 'offline') return; // still no connection
+          setOffline(false);
+          setUser(null);
+          setStatus('signed-out');
+        });
+    };
+    window.addEventListener('online', confirm);
+    if (navigator.onLine) confirm(); // the server may have been the only thing down
+    return () => {
+      alive = false;
+      window.removeEventListener('online', confirm);
+    };
+  }, [offline]);
 
   /**
    * The plan decides how many documents may exist and how much history is
@@ -112,6 +149,8 @@ export function AuthProvider({ children }) {
     user,
     status,
     isSignedIn: status === 'signed-in',
+    /** Opened from the saved profile because the server could not be reached. */
+    offline,
     /** The name shown in the sidebar and the dashboard greeting. */
     firstName: user?.name?.trim().split(/\s+/)[0] ?? '',
     /** 'BASIC' | 'PREMIUM' | 'ENTERPRISE' */
@@ -125,7 +164,7 @@ export function AuthProvider({ children }) {
     updateProfile,
     signOutEverywhere,
     deleteAccount,
-  }), [user, status, signIn, signUp, signInWithFirebase, signOut, updateProfile, signOutEverywhere, deleteAccount]);
+  }), [user, status, offline, signIn, signUp, signInWithFirebase, signOut, updateProfile, signOutEverywhere, deleteAccount]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
