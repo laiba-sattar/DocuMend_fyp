@@ -53,11 +53,25 @@ export function splitSentences(text) {
     if (!'.!?\n۔؟'.includes(c)) continue;
     const isDecimal = c === '.' && /\d/.test(text[i - 1] || '') && /\d/.test(text[i + 1] || '');
     if (isDecimal) continue;
+    if (c === '.' && isAbbreviation(text, i)) continue;
     push(text, begin, i + 1, sentences);
     begin = i + 1;
   }
   push(text, begin, text.length, sentences);
   return sentences;
+}
+
+/**
+ * The full stop at `index` belongs to a short abbreviation ("e.g.", "U.S.").
+ * The same rule as engine/src/text.rs: one or two letters before the dot, and
+ * either a single letter or a non-space character after it.
+ */
+function isAbbreviation(text, index) {
+  if (index === 0 || !/\p{Alphabetic}/u.test(text[index - 1])) return false;
+  let wordLength = 0;
+  for (let k = index - 1; k >= 0 && /\p{Alphabetic}/u.test(text[k]); k -= 1) wordLength += 1;
+  const next = text[index + 1];
+  return wordLength <= 2 && next !== undefined && (next !== ' ' || wordLength === 1);
 }
 
 function push(text, begin, end, out) {
@@ -319,6 +333,7 @@ function structureIssues(text, headings, kind) {
         related: [],
         repairs: [],
         suggestion: { title: name, level: Math.max(1, bodyLevel) },
+        outline: [],
       });
     });
   }
