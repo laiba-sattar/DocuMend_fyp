@@ -14,6 +14,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { ThemeProvider } from './components/ThemeContext'; // <-- Global theme provider
 import { AuthProvider } from './components/AuthContext';    // <-- Who is signed in (S5)
 import { RequireAccount } from './components/RequireAccount';
+import PwaStatus from './components/PwaStatus';                // <-- Offline / new-version notes
 
 // Page Components
 import Dashboard from './pages/Dashboard';
@@ -96,6 +97,7 @@ function App() {
       <ThemeProvider>
         <AuthProvider>
           <Router />
+          <PwaStatus />
         </AuthProvider>
       </ThemeProvider>
     </ErrorBoundary>
