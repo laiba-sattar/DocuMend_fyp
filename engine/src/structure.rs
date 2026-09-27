@@ -144,12 +144,14 @@ fn sections_have_text(text: &str, headings: &[Heading]) -> Vec<bool> {
         if gap >= gaps.len() {
             break;
         }
-        if position >= gaps[gap].0 && !c.is_whitespace() {
+        // The position must move on for every character, including the one that
+        // proves a section has text; skipping it drifts every later boundary.
+        let here = position;
+        position += c.len_utf16();
+        if here >= gaps[gap].0 && !c.is_whitespace() {
             filled[gap] = true;
             gap += 1; // this section has text; move on to the next one
-            continue;
         }
-        position += c.len_utf16();
     }
     filled
 }
@@ -446,6 +448,17 @@ mod tests {
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].title, "Section has no text");
         assert!(issues[0].message.contains("Methodology"));
+    }
+
+    #[test]
+    fn an_empty_section_after_a_filled_one_is_still_found() {
+        //            01234 5 67890123456789012 2 3456789012 3 4567890123 4 56789
+        let text = "Intro\nSome text here.\nMethodology\nConclusion\nDone.";
+        let headings = outline(&[("Intro", 1, 0, 5), ("Methodology", 1, 22, 33), ("Conclusion", 1, 34, 44)]);
+        let issues = run(text, &headings, "Other");
+        let empty: Vec<&Issue> = issues.iter().filter(|i| i.title == "Section has no text").collect();
+        assert_eq!(empty.len(), 1);
+        assert!(empty[0].message.contains("Methodology"));
     }
 
     #[test]
