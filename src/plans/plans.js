@@ -46,7 +46,7 @@ export const PLANS = [
     features: [
       { label: '10 documents', available: true },
       { label: 'The full editor: import, export, find and replace', available: true },
-      { label: 'All eight writing checks, running on your own computer', available: true },
+      { label: 'Every writing check, running on your own computer', available: true },
       { label: 'Version history, last 10 automatic saves per document', available: true },
       { label: 'Your document list on every device you sign in to', available: true },
     ],

@@ -60,7 +60,7 @@ import './features.css';
    ========================================================================== */
 
 /**
- * The eight writing checks, taken from the engine itself. Their switches are
+ * The writing checks, taken from the engine itself. Their switches are
  * real: they write to the same `mutedChecks` preference the editor reads, so
  * a check turned off here stops appearing in the review panel.
  */
@@ -172,8 +172,8 @@ const otherCapabilities = [
   /* ---- not written yet. Said plainly, not dressed up as a feature. ------- */
   {
     id: 'citations',
-    title: 'Reference checking',
-    description: 'Looking up each reference in CrossRef and Semantic Scholar, and repairing APA, MLA and IEEE formatting.',
+    title: 'Looking references up online',
+    description: 'Checking each reference against CrossRef and Semantic Scholar, to confirm it exists and fill in a missing year or DOI. The style checks are built; this part is not.',
     group: 'Planned',
     status: 'planned',
     where: 'Section S8 of the build plan',

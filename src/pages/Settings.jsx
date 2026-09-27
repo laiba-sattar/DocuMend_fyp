@@ -14,7 +14,7 @@
  *              and the two ways to leave (clear this device, close the account)
  *   Templates  the document types the engine actually checks against, straight
  *              out of engine/src/structure.rs, and which one new documents start as
- *   Checks     the eight rules the engine runs, each one switchable, plus the
+ *   Checks     the rules the engine runs, each one switchable, plus the
  *              browser storage this device is really using
  */
 import { useEffect, useMemo, useState } from 'react';

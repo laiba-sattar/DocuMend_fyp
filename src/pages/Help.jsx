@@ -116,7 +116,14 @@ const helpSections = [
         title: 'What DocuMend checks for',
         tag: 'Checks',
         content:
-          'Eight things. Three are about what you have written: figures that disagree (40% in one place, 45% in another about the same thing), two sentences that contradict each other, and a sentence that repeats one you already wrote. Five are about shape: a section your kind of document usually has but yours does not, a heading under an unusual name, a heading with nothing under it, a jump from Heading 1 to Heading 3, and two sections with the same name. The full list with descriptions is on the Features page.',
+          'Sixteen things. Three are about what you have written: figures that disagree (40% in one place, 45% in another about the same thing), two sentences that contradict each other, and a sentence that repeats one you already wrote. Seven are about shape: a section your kind of document usually has but yours does not, a heading under an unusual name, a heading with nothing under it, a jump from Heading 1 to Heading 3, two sections with the same name, no headings at all, and numbering that skips or repeats (1, 2, 4). Three are about references: an entry in your reference list with no year, a citation with no matching reference, and a reference nothing cites. Three more apply once you choose a citation style for the document: an entry that does not follow the style, a list in the wrong order, and a list with the wrong name. They read the reference list on your device and look nothing up online. The full list with descriptions is on the Features page.',
+      },
+      {
+        id: 'citation-style',
+        title: 'Choosing a citation style',
+        tag: 'References',
+        content:
+          'In the Review panel, under Document type, choose a Citation style: APA, MLA or IEEE. It is kept with that document, so a thesis can be APA while the paper beside it is IEEE. Then write as you normally would, and put your references under a heading called References (Works Cited for MLA). Cite the way the style asks: (Smith, 2020) for APA, (Smith 45) for MLA, [1] for IEEE. DocuMend then says which entries do not follow the style, what is missing (the year in brackets, initials before or after the surname, quotation marks round an article title, the volume and pages, a full stop at the end) and shows an example of the right form. It also flags a citation with no entry, an entry nothing cites, and a list that is out of order: alphabetical for APA and MLA, order of first citation for IEEE. It reads plain text, so it cannot see italics, and it does not check that a source exists. In MLA, a product name followed by a number, such as (Python 3), looks like a citation; use Ignore on that card.',
       },
       {
         id: 'where-issues',
@@ -130,7 +137,7 @@ const helpSections = [
         title: 'Turning a check off',
         tag: 'Settings',
         content:
-          'Settings → Checks & storage lists all eight with a switch each; the Features page has the same switches. Turning one off stops it appearing in the review panel on this computer, for good. "Ignore" on a single card is different: it hides that one finding until you reload.',
+          'Settings → Checks & storage lists every check with a switch each; the Features page has the same switches. Turning one off stops it appearing in the review panel on this computer, for good. "Ignore" on a single card is different: it hides that one finding until you reload.',
       },
       {
         id: 'where-it-runs',
@@ -174,7 +181,7 @@ const helpSections = [
         title: 'Working without the internet',
         tag: 'Offline',
         content:
-          'Everything except signing in works offline: writing, importing, exporting, version history and all eight checks. Changes to your document list wait in a queue and go up the next time you are online.',
+          'Everything except signing in works offline: writing, importing, exporting, version history and every check. Changes to your document list wait in a queue and go up the next time you are online.',
       },
     ],
   },
@@ -224,10 +231,10 @@ const helpSections = [
     articles: [
       {
         id: 'citations-planned',
-        title: 'Reference and citation checking',
+        title: 'Looking references up online',
         tag: 'Planned',
         content:
-          'Looking each reference up in CrossRef and Semantic Scholar, and repairing APA, MLA or IEEE formatting, is section S8 of the build plan. Nothing in this build reads your bibliography.',
+          'Checking each reference against CrossRef and Semantic Scholar, to confirm the source exists and fill in a missing year or DOI, is section S8 of the build plan. This build checks how your reference list is written (see Choosing a citation style), not whether the sources are real.',
       },
       {
         id: 'sharing-planned',
