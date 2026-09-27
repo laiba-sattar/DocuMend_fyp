@@ -115,6 +115,25 @@ export function setDocumentType(id, type) {
 }
 
 /**
+ * The citation styles the reference list can be checked against.
+ *
+ * The choice belongs to the document, not to the reader or the account: one
+ * thesis is in APA, the paper written next to it is in IEEE. It is stored on
+ * the device with the document and never sent to the account, which is only
+ * told a title, a type, a word count and a date.
+ */
+export const CITATION_STYLES = ['APA', 'MLA', 'IEEE'];
+
+/**
+ * Chooses the citation style the open document is checked against, or clears
+ * it with an empty string. With none chosen the reference list is still read
+ * for the checks that need no style (a missing year, an uncited entry).
+ */
+export function setDocumentCitationStyle(id, style) {
+  return updateDocument(id, { citationStyle: CITATION_STYLES.includes(style) ? style : '' });
+}
+
+/**
  * Records what the engine found, so the library can say it.
  *
  * `issueCount` was read by My documents and written by nobody: the editor knew
@@ -193,6 +212,7 @@ export async function duplicateDocument(id) {
     wordCount: original.wordCount ?? 0,
     format: original.format ?? 'DOCX',
     tint: original.tint,
+    citationStyle: original.citationStyle ?? '',
   });
   return { ...copy, title };
 }
