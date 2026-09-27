@@ -1,5 +1,5 @@
 /**
- * checks.js — the eight things DocuMend looks for, named once.
+ * checks.js — the things DocuMend looks for, named once.
  *
  * The engine (Rust, and its JavaScript twin in fallback.js) reports issues; it
  * does not report which rule produced them beyond a `kind` and a `title`. This
@@ -72,6 +72,50 @@ export const CHECKS = [
     title: 'Two sections share a name',
     blurb: 'The same heading appears twice, so a cross-reference cannot say which one it means.',
   },
+  {
+    id: 'numbering',
+    kind: 'structure',
+    title: 'Numbering has a gap',
+    blurb: 'Headings or list items numbered 1, 2, 4 — or repeating a number. One click renumbers the odd one out.',
+  },
+  {
+    id: 'reference-year',
+    kind: 'citation',
+    title: 'Reference has no year',
+    blurb: 'An entry in your reference list that gives no year, so a reader cannot tell which edition it means.',
+  },
+  {
+    id: 'citation-missing',
+    kind: 'citation',
+    title: 'Citation has no matching reference',
+    blurb: 'A citation in the text with no entry in the reference list: [5] with no number 5, or (Smith, 2020) with no Smith 2020.',
+  },
+  {
+    id: 'reference-uncited',
+    kind: 'citation',
+    title: 'Reference is never cited',
+    blurb: 'A reference in your list that nothing in the text points at.',
+  },
+  {
+    id: 'reference-style',
+    kind: 'citation',
+    title: 'Reference is not in the chosen style',
+    blurb: 'Needs a citation style chosen for the document. An entry that does not follow it, with what to change and an example of the right form.',
+    matches: (title) => title.startsWith('Reference is not in ') && title.endsWith(' style'),
+  },
+  {
+    id: 'reference-order',
+    kind: 'citation',
+    title: 'References are out of order',
+    blurb: 'Needs a citation style. APA and MLA lists run alphabetically by surname; IEEE numbers follow the order of first citation.',
+  },
+  {
+    id: 'reference-list-name',
+    kind: 'citation',
+    title: 'Reference list has the wrong name',
+    blurb: 'Needs a citation style. MLA calls the list "Works Cited"; APA and IEEE call it "References".',
+    matches: (title) => title.startsWith('Reference list should be called'),
+  },
 ];
 
 /** Which rule raised this issue, or null when it is one we do not know. */
@@ -86,4 +130,5 @@ export const KIND_LABELS = {
   contradiction: 'Contradictions',
   redundancy: 'Repetition',
   structure: 'Structure',
+  citation: 'References',
 };

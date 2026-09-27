@@ -41,9 +41,9 @@ function canonical(value) {
   return JSON.stringify(value);
 }
 
-function compare(name, text, outline, kind) {
-  const js = runJs(text, outline, kind);
-  const rs = JSON.parse(rust.analyze_json(text, outline, kind));
+function compare(name, text, outline, kind, style) {
+  const js = runJs(text, outline, kind, style);
+  const rs = JSON.parse(rust.analyze_json(text, outline, kind, style));
   const problems = [];
 
   const jsIssues = js.issues.map(canonical);
@@ -65,8 +65,8 @@ function compare(name, text, outline, kind) {
 
 let issuesSeen = 0;
 const failures = [];
-for (const { name, text, outline, kind } of cases) {
-  const result = compare(name, text, outline, kind);
+for (const { name, text, outline, kind, style = '' } of cases) {
+  const result = compare(name, text, outline, kind, style);
   issuesSeen += result.count;
   if (result.problems.length) failures.push(result);
 }

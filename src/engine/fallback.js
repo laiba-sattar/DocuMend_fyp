@@ -111,13 +111,36 @@ const singular = (word) => {
 export function numbersIn(sentence) {
   const facts = [];
   const body = sentence.text;
-  const pattern = /\d[\d,]*(?:\.\d+)?/g;
-  let match = pattern.exec(body);
-  while (match) {
-    let value = Number(match[0].replace(/,/g, ''));
+  const spans = citationSpans(body);
+  let i = 0;
+  while (i < body.length) {
+    // The digits of a citation like [3] or [2, 4] are reference numbers, not figures.
+    const inCitation = spans.find(([from, to]) => i >= from && i < to);
+    if (inCitation) {
+      i = inCitation[1];
+      continue;
+    }
+    if (!isDigit(body[i])) {
+      i += 1;
+      continue;
+    }
+    // Digits, with a comma or a dot only when a digit follows it (45,000 or 3.5),
+    // the same way engine/src/numbers.rs reads them.
+    const digitsStart = i;
+    let digitsEnd = i;
+    while (digitsEnd < body.length) {
+      const c = body[digitsEnd];
+      if (isDigit(c) || ((c === ',' || c === '.') && isDigit(body[digitsEnd + 1]))) digitsEnd += 1;
+      else break;
+    }
+    let value = Number(body.slice(digitsStart, digitsEnd).replace(/,/g, ''));
+    if (Number.isNaN(value)) {
+      i = digitsEnd;
+      continue;
+    }
     let unit = '';
-    let start = match.index;
-    let end = match.index + match[0].length;
+    let start = digitsStart;
+    let end = digitsEnd;
 
     const before = body.slice(0, start).match(/([\p{L}$€£₨]+)\.?\s*$/u);
     if (before) {
@@ -159,10 +182,30 @@ export function numbersIn(sentence) {
       start: sentence.start + start,
       end: sentence.start + end,
     });
-    pattern.lastIndex = Math.max(pattern.lastIndex, end);
-    match = pattern.exec(body);
+    i = Math.max(end, digitsEnd);
   }
   return facts;
+}
+
+/** Where the numbered citations ("[3]", "[2, 4]", "[3-6]") sit in a piece of text, as [from, to) pairs. */
+function citationSpans(text) {
+  const spans = [];
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] !== '[') {
+      i += 1;
+      continue;
+    }
+    let j = i + 1;
+    while (j < text.length && j - i <= 40 && (isDigit(text[j]) || text[j] === ' ' || text[j] === ',' || text[j] === '-' || text[j] === '–')) j += 1;
+    if (j < text.length && text[j] === ']' && j > i + 1 && /\d/.test(text.slice(i + 1, j))) {
+      spans.push([i, j + 1]);
+      i = j + 1;
+      continue;
+    }
+    i += 1;
+  }
+  return spans;
 }
 
 const isUnitWord = (word) => word.length >= 2 && /^[\p{L}]+$/u.test(word) && !NOT_UNITS.has(word);
@@ -406,14 +449,949 @@ function structureIssues(text, headings, kind) {
   return issues;
 }
 
+/* ---------------------------------------------------------------------------
+   Numbering and references — the same rules as engine/src/numbering.rs and
+   engine/src/references.rs. Keep the two in step: `npm run test:engine`
+   compares them.
+   ------------------------------------------------------------------------- */
+
+/** The document's non-empty lines, trimmed, with their offsets in the text. */
+function documentLines(text) {
+  const out = [];
+  let position = 0;
+  for (const raw of text.split('\n')) {
+    const trimmed = raw.trim();
+    if (trimmed) {
+      const lead = raw.length - raw.trimStart().length;
+      out.push({ start: position + lead, end: position + lead + trimmed.length, text: trimmed });
+    }
+    position += raw.length + 1;
+  }
+  return out;
+}
+
+const isDigit = (c) => c !== undefined && c >= '0' && c <= '9';
+const pathString = (path) => path.join('.');
+
+/** "3. Results" is [3]; "2.1 Background" is [2, 1]. At most three digits per part. */
+export function headingNumber(title) {
+  const path = [];
+  let i = 0;
+  for (;;) {
+    const begin = i;
+    while (i < title.length && isDigit(title[i])) i += 1;
+    if (i === begin || i - begin > 3) return null;
+    path.push(Number(title.slice(begin, i)));
+    if (i + 1 < title.length && title[i] === '.' && isDigit(title[i + 1])) {
+      i += 1;
+      continue;
+    }
+    break;
+  }
+  const end = i;
+  let j = i;
+  if (j < title.length && (title[j] === '.' || title[j] === ')')) j += 1;
+  if (j >= title.length || !/\s/.test(title[j])) return null;
+  if (/^\s*$/.test(title.slice(j))) return null;
+  return { path, end };
+}
+
+/** The heading without its number: "3. Results" is "Results". */
+export function headingText(title) {
+  const number = headingNumber(title);
+  if (!number) return title.trim();
+  let j = number.end;
+  if (j < title.length && (title[j] === '.' || title[j] === ')')) j += 1;
+  return title.slice(j).trim();
+}
+
+/** The number that starts a typed list item: "3. x", "3) x" or "[3] x". */
+function marker(line) {
+  const bracket = line[0] === '[';
+  const digitsStart = bracket ? 1 : 0;
+  let i = digitsStart;
+  while (i < line.length && isDigit(line[i])) i += 1;
+  const digitsLen = i - digitsStart;
+  if (digitsLen === 0 || digitsLen > 3) return null;
+  const number = Number(line.slice(digitsStart, i));
+  if (number === 0) return null;
+  let style;
+  if (bracket && line[i] === ']') style = ']';
+  else if (!bracket && line[i] === '.') style = '.';
+  else if (!bracket && line[i] === ')') style = ')';
+  else return null;
+  const tokenEnd = i + 1;
+  if (tokenEnd >= line.length || !/\s/.test(line[tokenEnd])) return null;
+  return { number, digitsStart, digitsLen, tokenEnd, style };
+}
+
+const MAX_SEQUENCE_ISSUES = 40;
+
+function numberingIssues(headings, lines) {
+  const issues = [];
+  const build = (start, end, message, location, related, repair) => ({
+    id: `numbering-${start}`,
+    kind: 'structure',
+    title: 'Numbering has a gap',
+    message,
+    severity: 'low',
+    location,
+    start,
+    end,
+    related: [related],
+    repairs: [repair],
+    suggestion: null,
+    outline: [],
+  });
+
+  // numbered headings: compare each with the one before it at its level
+  const numbered = [];
+  headings.forEach((heading, index) => {
+    const number = headingNumber(heading.title);
+    if (number) numbered.push({ index, number });
+  });
+  for (let k = 0; k < numbered.length; k += 1) {
+    if (issues.length >= MAX_SEQUENCE_ISSUES) return issues;
+    const { index, number: current } = numbered[k];
+    const depth = current.path.length;
+    const parent = current.path.slice(0, depth - 1).join(',');
+    let before = null;
+    for (let m = k - 1; m >= 0; m -= 1) {
+      const other = numbered[m].number;
+      if (other.path.length === depth && other.path.slice(0, depth - 1).join(',') === parent) {
+        before = numbered[m];
+        break;
+      }
+    }
+    if (!before) continue;
+    const previous = before.number;
+    const a = previous.path[depth - 1];
+    const b = current.path[depth - 1];
+    if (b === a + 1 || (depth === 1 && b === 1)) continue;
+    const heading = headings[index];
+    const expected = [...current.path];
+    expected[depth - 1] = a + 1;
+    const cur = pathString(current.path);
+    const prev = pathString(previous.path);
+    let message;
+    if (b === a) {
+      message = `Two sections are both numbered ${cur}.`;
+    } else if (b < a) {
+      message = `“${heading.title}” is numbered ${cur}, which comes before the section above it, ${prev}.`;
+    } else {
+      const first = [...current.path];
+      first[depth - 1] = a + 1;
+      const last = [...current.path];
+      last[depth - 1] = b - 1;
+      const missing = a + 1 === b - 1
+        ? `Section ${pathString(first)} is missing.`
+        : `Sections ${pathString(first)} to ${pathString(last)} are missing.`;
+      message = `“${heading.title}” is numbered ${cur}, but the section before it is ${prev}. ${missing}`;
+    }
+    const earlier = headings[before.index];
+    issues.push(build(
+      heading.start,
+      heading.start + current.end,
+      message,
+      `Heading “${heading.title}”`,
+      { start: earlier.start, end: earlier.start + previous.end },
+      { label: `Number it ${pathString(expected)}`, start: heading.start, end: heading.start + current.end, text: pathString(expected) },
+    ));
+  }
+
+  // typed lists: consecutive lines that start with 1. 2. 3.
+  let earlier = null; // { mark, lineStart }
+  for (const line of lines) {
+    if (headings.some((h) => h.start === line.start)) {
+      earlier = null;
+      continue;
+    }
+    const now = marker(line.text);
+    if (!now) {
+      earlier = null;
+      continue;
+    }
+    if (earlier && earlier.mark.style === now.style) {
+      const a = earlier.mark.number;
+      const b = now.number;
+      if (b !== a + 1 && b !== 1) {
+        if (issues.length >= MAX_SEQUENCE_ISSUES) return issues;
+        let message;
+        if (b === a) message = `Two items in a row are both numbered ${b}.`;
+        else if (b < a) message = `The numbering goes back from ${a} to ${b}.`;
+        else if (a + 1 === b - 1) message = `The list goes from ${a} to ${b}. Item ${a + 1} is missing.`;
+        else message = `The list goes from ${a} to ${b}. Items ${a + 1} to ${b - 1} are missing.`;
+        const digits = line.start + now.digitsStart;
+        issues.push(build(
+          digits,
+          line.start + now.tokenEnd,
+          message,
+          `Items ${a} and ${b}`,
+          { start: earlier.lineStart + earlier.mark.digitsStart, end: earlier.lineStart + earlier.mark.tokenEnd },
+          { label: `Number it ${a + 1}`, start: digits, end: digits + now.digitsLen, text: String(a + 1) },
+        ));
+      }
+    }
+    earlier = { mark: now, lineStart: line.start };
+  }
+  return issues;
+}
+
+const REFERENCE_HEADINGS = ['references', 'reference', 'reference list', 'bibliography', 'works cited', 'citations', 'sources'];
+const isReferencesHeading = (title) => REFERENCE_HEADINGS.includes(headingText(title).toLowerCase().replace(/:+$/, '').trim());
+
+/** A year from 1500 to 2099, or "n.d." (no date)? */
+function hasYear(text) {
+  if (text.toLowerCase().includes('n.d.')) return true;
+  const runs = /\d+/g;
+  let found = runs.exec(text);
+  while (found) {
+    if (found[0].length === 4 && (found.index === 0 || !/[\p{L}\p{N}]/u.test(text[found.index - 1]))) {
+      const value = Number(found[0]);
+      if (value >= 1500 && value <= 2099) return true;
+    }
+    found = runs.exec(text);
+  }
+  return false;
+}
+
+/** "2, 4" is 2 and 4; "3-6" is 3, 4, 5, 6. Anything else is ignored. */
+function expandCitation(inner) {
+  const out = [];
+  const parse = (s) => (/^\d+$/.test(s) ? Number(s) : null);
+  for (const part of inner.split(',')) {
+    const pieces = part.trim().split(/[-–]/).map((s) => s.trim());
+    if (pieces.length === 1) {
+      const n = parse(pieces[0]);
+      if (n !== null && n >= 1 && n <= 999) out.push(n);
+    } else if (pieces.length === 2) {
+      const a = parse(pieces[0]);
+      const b = parse(pieces[1]);
+      if (a !== null && b !== null && a >= 1 && b >= a && b <= 999 && b - a <= 100) {
+        for (let n = a; n <= b; n += 1) out.push(n);
+      }
+    }
+  }
+  return out;
+}
+
+/** Every "[5]"-style citation on one line. */
+function citationsIn(line) {
+  const found = [];
+  const s = line.text;
+  let i = 0;
+  while (i < s.length) {
+    if (s[i] !== '[') {
+      i += 1;
+      continue;
+    }
+    let j = i + 1;
+    while (j < s.length && j - i <= 40 && (isDigit(s[j]) || s[j] === ' ' || s[j] === ',' || s[j] === '-' || s[j] === '–')) j += 1;
+    if (j < s.length && s[j] === ']' && j > i + 1) {
+      const inner = s.slice(i + 1, j);
+      if (/\d/.test(inner)) {
+        for (const number of expandCitation(inner)) found.push({ number, start: line.start + i, end: line.start + j + 1 });
+        i = j + 1;
+        continue;
+      }
+    }
+    i += 1;
+  }
+  return found;
+}
+
+/** Makes a "citation" issue. */
+function citationIssue(id, title, message, severity, location, start, end) {
+  return {
+    id, kind: 'citation', title, message, severity, location, start, end,
+    related: [], repairs: [], suggestion: null, outline: [],
+  };
+}
+
+/** The reference list: its heading, where it starts and ends, and one entry per line. */
+function findReferenceList(documentLength, headings, lines) {
+  const position = headings.findIndex((h) => isReferencesHeading(h.title));
+  if (position < 0) return null;
+  const start = headings[position].end;
+  const end = headings[position + 1] ? headings[position + 1].start : documentLength;
+  const contains = (line) => line.start >= start && line.start < end;
+  const isHeading = (line) => headings.some((h) => h.start === line.start);
+  const entries = lines
+    .filter((line) => contains(line) && !isHeading(line))
+    .map((line) => ({ line, mark: marker(line.text) }));
+  return { heading: headings[position], contains, isHeading, entries };
+}
+
+/** Every numbered citation in the text outside the reference list, in reading order. */
+function bodyCitations(list, lines) {
+  return lines.filter((line) => !list.contains(line) && !list.isHeading(line)).flatMap(citationsIn);
+}
+
+function referenceIssues(documentLength, headings, lines) {
+  const issues = [];
+  const list = findReferenceList(documentLength, headings, lines);
+  if (!list) return issues;
+  const { entries } = list;
+
+  // 1. a reference with no year
+  for (const { line, mark } of entries) {
+    if (issues.length >= MAX_SEQUENCE_ISSUES) return issues;
+    if (line.text.split(/\s+/).filter(Boolean).length < 3 || hasYear(line.text)) continue;
+    issues.push(citationIssue(
+      `reference-year-${line.start}`,
+      'Reference has no year',
+      'This reference does not give a year, so a reader cannot tell which edition or date it means.',
+      'medium',
+      mark ? `Reference ${mark.number}` : 'Reference list',
+      line.start,
+      line.end,
+    ));
+  }
+
+  const listed = entries.filter((e) => e.mark).map((e) => ({ number: e.mark.number, line: e.line, mark: e.mark }));
+  if (!listed.length) return issues;
+  const cited = bodyCitations(list, lines);
+
+  // 2. a citation with no matching reference
+  const reported = [];
+  for (const citation of cited) {
+    if (issues.length >= MAX_SEQUENCE_ISSUES) return issues;
+    if (listed.some((e) => e.number === citation.number) || reported.includes(citation.number)) continue;
+    reported.push(citation.number);
+    issues.push(citationIssue(
+      `citation-missing-${citation.start}`,
+      'Citation has no matching reference',
+      `Citation [${citation.number}] points at a reference that is not in the list.`,
+      'medium',
+      `Citation [${citation.number}]`,
+      citation.start,
+      citation.end,
+    ));
+  }
+
+  // 3. a numbered reference that nothing cites
+  if (cited.length) {
+    for (const entry of listed) {
+      if (issues.length >= MAX_SEQUENCE_ISSUES) return issues;
+      if (cited.some((c) => c.number === entry.number)) continue;
+      issues.push(citationIssue(
+        `reference-uncited-${entry.line.start}`,
+        'Reference is never cited',
+        `Reference [${entry.number}] is not cited anywhere in the text.`,
+        'low',
+        `Reference ${entry.number}`,
+        entry.line.start,
+        entry.line.start + entry.mark.tokenEnd,
+      ));
+    }
+  }
+  return issues;
+}
+
+/* ---------------------------------------------------------------------------
+   Citation style — the same rules as engine/src/citation_style.rs. The writer
+   picks APA, MLA or IEEE; the reference list is then read the way that style
+   expects it. Keep the two in step: `npm run test:engine` compares them.
+   ------------------------------------------------------------------------- */
+
+const STYLE_NAMES = { apa: 'APA', mla: 'MLA', ieee: 'IEEE' };
+const STYLE_INFO = {
+  APA: { listName: 'References', example: 'Author, A. A. (2020). Article title. Journal Name, 3(2), 10-20.' },
+  MLA: { listName: 'Works Cited', example: 'Author, Firstname. "Article Title." Journal Name, vol. 3, no. 2, 2020, pp. 10-20.' },
+  IEEE: { listName: 'References', example: '[1] A. Author, "Article title," Journal Name, vol. 3, no. 2, pp. 10-20, 2020.' },
+};
+
+/** "APA", "mla" or " IEEE " (any case) becomes the style's name; anything else is no style. */
+function parseStyle(name) {
+  return STYLE_NAMES[String(name || '').trim().toLowerCase()] || null;
+}
+
+const isUpper = (c) => c !== undefined && /^\p{Uppercase}$/u.test(c);
+const isAlpha = (c) => c !== undefined && /^\p{Alphabetic}$/u.test(c);
+const isAlnum = (c) => c !== undefined && /^[\p{Alphabetic}\p{N}]$/u.test(c);
+const isSpace = (c) => c !== undefined && /^\p{White_Space}$/u.test(c);
+const startsUpper = (word) => word.length > 0 && isUpper(String.fromCodePoint(word.codePointAt(0)));
+const splitWords = (text) => text.split(/\p{White_Space}+/u).filter(Boolean);
+const NAME_PUNCTUATION = new Set(["'", '’', '-', ' ']);
+
+/** Ends with a full stop, or with a link or DOI (which take none). */
+function endsProperly(text) {
+  const trimmed = text.trimEnd();
+  if (trimmed.endsWith('.')) return true;
+  const last = splitWords(trimmed).pop() || '';
+  return last.includes('://') || last.toLowerCase().startsWith('doi');
+}
+
+/** "A. Author" or "J. K. Rowling": initials first, then the surname. */
+function initialsFirst(text) {
+  const chars = Array.from(text);
+  let i = 0;
+  let initials = 0;
+  while (i + 1 < chars.length && isUpper(chars[i]) && chars[i + 1] === '.') {
+    initials += 1;
+    i += 2;
+    while (i < chars.length && chars[i] === ' ') i += 1;
+  }
+  return initials >= 1 && i < chars.length && isUpper(chars[i]);
+}
+
+/** "Smith, J." (APA: initials only) or "Smith, John" (MLA): surname, comma, first name. */
+function surnameFirst(text, initialsOnly) {
+  const chars = Array.from(text);
+  if (!isUpper(chars[0])) return false;
+  let i = 0;
+  while (i < chars.length && (isAlpha(chars[i]) || NAME_PUNCTUATION.has(chars[i]))) i += 1;
+  if (chars[i] !== ',' || chars[i + 1] !== ' ') return false;
+  const name = i + 2;
+  if (!isUpper(chars[name])) return false;
+  return !initialsOnly || chars[name + 1] === '.';
+}
+
+/** No comma before the first sentence: an organisation or a title standing in for an author. */
+function organisationOrTitleFirst(text) {
+  const at = text.indexOf('. ');
+  const head = at >= 0 ? text.slice(0, at) : text;
+  return !head.includes(',');
+}
+
+/** A title inside quotation marks, straight or curly. */
+function hasQuotedTitle(text) {
+  const chars = Array.from(text);
+  const open = chars.findIndex((c) => c === '"' || c === '“');
+  if (open < 0) return false;
+  return chars.slice(open + 4).some((c) => c === '"' || c === '”');
+}
+
+/** The "(2020)" after the authors: the index of "(" and of ")", or null. */
+function yearInParentheses(chars) {
+  for (let i = 0; i < chars.length; i += 1) {
+    if (chars[i] !== '(') continue;
+    if (chars.slice(i + 1, i + 6).join('').toLowerCase() === 'n.d.)') return { open: i, close: i + 5 };
+    if (i + 5 < chars.length && chars.slice(i + 1, i + 5).every(isDigit)) {
+      const year = Number(chars.slice(i + 1, i + 5).join(''));
+      if (year >= 1500 && year <= 2099) {
+        let k = i + 5;
+        if (k < chars.length && chars[k] >= 'a' && chars[k] <= 'z') k += 1;
+        if (k < chars.length && (chars[k] === ')' || chars[k] === ',')) {
+          for (let x = k; x < chars.length; x += 1) if (chars[x] === ')') return { open: i, close: x };
+          return null;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/** The text after an entry's own number, or the whole text when it has none. */
+const withoutMarker = (text, mark) => (mark ? text.slice(mark.tokenEnd).trim() : text);
+
+/** The name an entry is sorted under (its first author's surname), as written and in lower case. */
+function sortName(body) {
+  const stop = new Set([',', '.', '(', '"']);
+  const chars = Array.from(body);
+  let n = 0;
+  while (n < chars.length && !stop.has(chars[n])) n += 1;
+  const name = chars.slice(0, n).join('').trim();
+  return { name, lower: name.toLowerCase() };
+}
+
+function snippet(text) {
+  const chars = Array.from(text);
+  return chars.length > 24 ? `${chars.slice(0, 24).join('')}…` : text;
+}
+
+const entryLocation = (mark, text) => (mark ? `Reference ${mark.number}` : `Reference “${snippet(text)}”`);
+
+function apaPieces(body, numbered) {
+  const pieces = [];
+  if (numbered) pieces.push('remove the number: APA lists references alphabetically, without numbers');
+  if (!surnameFirst(body, true) && !organisationOrTitleFirst(body)) {
+    pieces.push('write the first author as surname, comma, initials (Author, A. A.)');
+  }
+  const chars = Array.from(body);
+  const paren = yearInParentheses(chars);
+  if (paren) {
+    const authors = chars.slice(0, paren.open).join('');
+    if (authors.includes(' and ')) pieces.push('join the last two authors with &, not "and"');
+    const next = chars.slice(paren.close + 1).find((c) => !isSpace(c));
+    if (next !== '.') pieces.push('put a full stop after the year in brackets: (2020)');
+  } else if (hasYear(body)) {
+    pieces.push('put the year in parentheses right after the authors, like (2020)');
+  }
+  if (!endsProperly(body)) pieces.push('end the entry with a full stop (or a DOI or link)');
+  return pieces;
+}
+
+function mlaPieces(body, numbered) {
+  const pieces = [];
+  if (numbered) pieces.push('remove the number: MLA lists works alphabetically, without numbers');
+  if (!surnameFirst(body, false) && !organisationOrTitleFirst(body)) {
+    pieces.push("start with the author's surname, a comma, then the first name (Author, Firstname)");
+  }
+  if (!endsProperly(body)) pieces.push('end the entry with a full stop');
+  return pieces;
+}
+
+function ieeePieces(body, mark) {
+  const pieces = [];
+  if (!(mark && mark.style === ']')) pieces.push('start it with its number in brackets, like [3]');
+  if (!initialsFirst(body)) pieces.push('write the first author as initials then surname, like A. Author');
+  if (!hasQuotedTitle(body)) {
+    pieces.push('put an article title in quotation marks (a book title is italic instead)');
+  } else {
+    const lower = body.toLowerCase();
+    const hasDetails = ['vol.', 'pp.', 'no.', 'proc', 'available', 'doi', 'http', 'arxiv'].some((word) => lower.includes(word));
+    if (!hasDetails) pieces.push('add the volume, issue and pages: vol. 3, no. 2, pp. 10-20');
+  }
+  if (!endsProperly(body)) pieces.push('end the entry with a full stop');
+  return pieces;
+}
+
+/** UTF-16 offset of each character of a line, plus one for the end. */
+function offsetsOf(lineStart, chars) {
+  const at = [];
+  let position = lineStart;
+  for (const c of chars) {
+    at.push(position);
+    position += c.length;
+  }
+  at.push(position);
+  return at;
+}
+
+/** The [start, end) character ranges of the whitespace-separated words in a..b. */
+function wordSpans(chars, a, b) {
+  const out = [];
+  let i = a;
+  while (i < b) {
+    if (isSpace(chars[i])) {
+      i += 1;
+      continue;
+    }
+    const start = i;
+    while (i < b && !isSpace(chars[i])) i += 1;
+    out.push([start, i]);
+  }
+  return out;
+}
+
+/** A word without the punctuation around it ("Smith," is "Smith", "Smith's" is "Smith"). */
+function cleanWord(word) {
+  let trimmed = word.join('').replace(/^[,;:&()"“”]+|[,;:&()"“”]+$/g, '');
+  if (trimmed.endsWith("'s")) trimmed = trimmed.slice(0, -2);
+  else if (trimmed.endsWith('’s')) trimmed = trimmed.slice(0, -2);
+  return trimmed.replace(/\.+$/, '');
+}
+
+const LEAD_INS = new Set(['see', 'also', 'cf', 'e.g', 'eg', 'for', 'in', 'compare', 'but', 'and', 'as', 'by']);
+
+/** The first year (1500-2099) anywhere in the text, with where it starts. */
+function firstYear(chars) {
+  let i = 0;
+  while (i < chars.length) {
+    if (!isDigit(chars[i])) {
+      i += 1;
+      continue;
+    }
+    const start = i;
+    while (i < chars.length && isDigit(chars[i])) i += 1;
+    if (i - start === 4 && (start === 0 || !isAlnum(chars[start - 1]))) {
+      const digits = chars.slice(start, i).join('');
+      const value = Number(digits);
+      if (value >= 1500 && value <= 2099) return { year: digits, at: start };
+    }
+  }
+  return null;
+}
+
+/** The last year (1500-2099) in chars[a..b] and where it starts. */
+function lastYear(chars, a, b) {
+  let best = null;
+  let i = a;
+  while (i < b) {
+    if (!isDigit(chars[i])) {
+      i += 1;
+      continue;
+    }
+    const start = i;
+    while (i < b && isDigit(chars[i])) i += 1;
+    if (i - start === 4 && (start === a || !isAlnum(chars[start - 1]))) {
+      const digits = chars.slice(start, i).join('');
+      const value = Number(digits);
+      if (value >= 1500 && value <= 2099) best = { year: digits, at: start };
+    }
+  }
+  return best;
+}
+
+/** The first name-like word in chars[a..b], for "(see Smith & Jones, 2020)". */
+function surnameBefore(chars, a, b) {
+  for (const [start, end] of wordSpans(chars, a, b)) {
+    const cleaned = cleanWord(chars.slice(start, end));
+    if (startsUpper(cleaned) && !LEAD_INS.has(cleaned.toLowerCase())) return cleaned;
+  }
+  return null;
+}
+
+/**
+ * For "Smith and Jones (2020)" or "Smith et al. (2020)": the first author, read
+ * backwards from the "(". A name may be joined to the one before it by "and" or
+ * "&"; anything else ("As Smith (2020)") ends the names.
+ */
+function narrativeSurname(chars, open) {
+  const all = wordSpans(chars, 0, open);
+  let first = null;
+  let expectingName = true;
+  let index = all.length;
+  let steps = 0;
+  while (index > 0 && steps < 12) {
+    index -= 1;
+    steps += 1;
+    const [start, end] = all[index];
+    const raw = chars.slice(start, end).join('');
+    const cleaned = cleanWord(chars.slice(start, end));
+    const lower = cleaned.toLowerCase();
+    if (expectingName) {
+      if (first === null && lower === 'al') {
+        if (index === 0) break;
+        const [beforeStart, beforeEnd] = all[index - 1];
+        if (cleanWord(chars.slice(beforeStart, beforeEnd)).toLowerCase() !== 'et') break;
+        index -= 1;
+        steps += 1;
+        expectingName = true;
+        continue;
+      }
+      if (!startsUpper(cleaned)) break;
+      first = cleaned;
+      expectingName = false;
+    } else if (lower === 'and' || raw === '&') {
+      expectingName = true;
+    } else {
+      break;
+    }
+  }
+  return first;
+}
+
+/** Every APA-style author-year citation on one line. */
+function apaCitations(line) {
+  const chars = Array.from(line.text);
+  const at = offsetsOf(line.start, chars);
+  const found = [];
+  let i = 0;
+  while (i < chars.length) {
+    if (chars[i] !== '(') {
+      i += 1;
+      continue;
+    }
+    let j = i + 1;
+    while (j < chars.length && j - i <= 200 && chars[j] !== ')' && chars[j] !== '(') j += 1;
+    if (j >= chars.length || chars[j] !== ')') {
+      i += 1;
+      continue;
+    }
+    let partStart = i + 1;
+    let firstPart = true;
+    for (let k = i + 1; k <= j; k += 1) {
+      if (k === j || chars[k] === ';') {
+        const year = lastYear(chars, partStart, k);
+        if (year) {
+          let surname = surnameBefore(chars, partStart, year.at);
+          if (surname === null && firstPart && chars.slice(partStart, year.at).every((c) => !isAlnum(c))) {
+            surname = narrativeSurname(chars, i);
+          }
+          if (surname !== null) {
+            // "(Smith, 2020; Jones, 2019)": point at the one source, not the whole bracket
+            let start = at[i];
+            let end = at[j + 1];
+            if (chars.slice(i + 1, j).includes(';')) {
+              let a = partStart;
+              while (a < k && isSpace(chars[a])) a += 1;
+              let b = k;
+              while (b > a && isSpace(chars[b - 1])) b -= 1;
+              start = at[a];
+              end = at[b];
+            }
+            found.push({ surname: surname.toLowerCase(), display: surname, year: year.year, start, end });
+          }
+        }
+        partStart = k + 1;
+        firstPart = false;
+      }
+    }
+    i = j + 1;
+  }
+  return found;
+}
+
+const NOT_NAMES = new Set([
+  'figure', 'fig', 'table', 'section', 'chapter', 'appendix', 'equation', 'eq', 'page', 'pages', 'pp', 'see',
+  'ibid', 'cf', 'also', 'below', 'above', 'note', 'article', 'part', 'volume', 'vol', 'example', 'eg',
+]);
+
+/** "45" or "45-47" (hyphen or en dash). */
+function isPages(word) {
+  const chars = Array.from(word);
+  let digits = 0;
+  while (digits < chars.length && isDigit(chars[digits])) digits += 1;
+  if (digits === 0) return false;
+  if (digits === chars.length) return true;
+  return (chars[digits] === '-' || chars[digits] === '–')
+    && chars.length > digits + 1
+    && chars.slice(digits + 1).every(isDigit);
+}
+
+const isNameWord = (word) => startsUpper(word)
+  && Array.from(word).every((c) => isAlpha(c) || c === "'" || c === '’' || c === '-');
+
+/** Every MLA-style "(Surname 45)" citation on one line. A page number is required. */
+function mlaCitations(line) {
+  const chars = Array.from(line.text);
+  const at = offsetsOf(line.start, chars);
+  const found = [];
+  let i = 0;
+  while (i < chars.length) {
+    if (chars[i] !== '(') {
+      i += 1;
+      continue;
+    }
+    let j = i + 1;
+    while (j < chars.length && j - i <= 80 && chars[j] !== ')' && chars[j] !== '(') j += 1;
+    if (j >= chars.length || chars[j] !== ')') {
+      i += 1;
+      continue;
+    }
+    const parts = splitWords(chars.slice(i + 1, j).join(''));
+    const first = parts[0];
+    if (first !== undefined && isNameWord(first) && !NOT_NAMES.has(first.toLowerCase())) {
+      let index = 1;
+      if (parts[index] === 'and' && parts[index + 1] !== undefined && isNameWord(parts[index + 1])) index += 2;
+      else if (parts[index] === 'et' && parts[index + 1] === 'al.') index += 2;
+      if (index + 1 === parts.length && isPages(parts[index])) found.push({ display: first, start: at[i], end: at[j + 1] });
+    }
+    i = j + 1;
+  }
+  return found;
+}
+
+/** "smith" matches "smith", "smith jones" and "world health smith". */
+const sameSurname = (reference, cited) => reference === cited
+  || reference.startsWith(`${cited} `)
+  || reference.endsWith(` ${cited}`);
+
+/** IEEE numbers references in the order they are first cited. */
+function ieeeOrderIssues(list, lines, issues) {
+  const listed = list.entries.filter((e) => e.mark).map((e) => e.mark.number);
+  if (!listed.length) return;
+  const cited = bodyCitations(list, lines).filter((c) => listed.includes(c.number));
+  const seen = [];
+  for (const citation of cited) {
+    if (seen.includes(citation.number)) continue;
+    const waiting = Math.min(...cited.map((c) => c.number).filter((n) => !seen.includes(n)));
+    seen.push(citation.number);
+    if (citation.number > waiting) {
+      if (issues.length >= MAX_SEQUENCE_ISSUES) return;
+      issues.push(citationIssue(
+        `order-cite-${citation.start}`,
+        'References are out of order',
+        `[${citation.number}] is cited before [${waiting}]. IEEE numbers references in the order they first appear in the text.`,
+        'low',
+        `Citation [${citation.number}]`,
+        citation.start,
+        citation.end,
+      ));
+    }
+  }
+}
+
+/** "Smith (2020)", or just "Smith" when the entry gives no year. */
+const citedLabel = (name, year) => (year ? `${name} (${year})` : name);
+
+/** An entry with no year matches a citation of that surname in any year. */
+const yearMatches = (entryYear, citedYear) => entryYear === '' || entryYear === citedYear;
+
+/** APA: "(Smith, 2020)" in the text against "Smith, J. (2020)." in the list. */
+function authorYearIssues(list, lines, issues) {
+  // A stray "[2]" or a year outside brackets is a style fault reported above; the entry still counts here.
+  const entries = [];
+  for (const { line, mark } of list.entries) {
+    if (splitWords(line.text).length < 3) continue;
+    const body = withoutMarker(line.text, mark);
+    const chars = Array.from(body);
+    const { name, lower } = sortName(body);
+    if (!lower) continue;
+    const paren = yearInParentheses(chars);
+    let year;
+    if (paren) {
+      const digits = chars.slice(paren.open + 1, paren.open + 5).join('');
+      year = /^[0-9]{4}$/.test(digits) ? digits : 'nd';
+    } else {
+      const first = firstYear(chars);
+      year = first ? first.year : '';
+    }
+    entries.push({ name, lower, year, line, location: entryLocation(mark, line.text), numbered: Boolean(mark) });
+  }
+  // A numbered entry is already reported as uncited by the numbered checks when the text cites by number.
+  const numericCited = bodyCitations(list, lines).length > 0;
+  const cites = lines.filter((line) => !list.contains(line) && !list.isHeading(line)).flatMap(apaCitations);
+
+  const reported = [];
+  for (const cite of cites) {
+    if (entries.some((e) => sameSurname(e.lower, cite.surname) && yearMatches(e.year, cite.year))) continue;
+    const key = `${cite.surname}|${cite.year}`;
+    if (reported.includes(key)) continue;
+    if (issues.length >= MAX_SEQUENCE_ISSUES) return;
+    reported.push(key);
+    issues.push(citationIssue(
+      `citation-missing-${cite.start}`,
+      'Citation has no matching reference',
+      `No reference for “${citedLabel(cite.display, cite.year)}” in the reference list.`,
+      'medium',
+      'Citation',
+      cite.start,
+      cite.end,
+    ));
+  }
+  if (!cites.length) return;
+  for (const entry of entries) {
+    if (cites.some((cite) => sameSurname(entry.lower, cite.surname) && yearMatches(entry.year, cite.year))) continue;
+    if (entry.numbered && numericCited) continue;
+    if (issues.length >= MAX_SEQUENCE_ISSUES) return;
+    issues.push(citationIssue(
+      `reference-uncited-${entry.line.start}`,
+      'Reference is never cited',
+      `Nothing in the text cites “${citedLabel(entry.name, entry.year)}”.`,
+      'low',
+      entry.location,
+      entry.line.start,
+      entry.line.end,
+    ));
+  }
+}
+
+/** MLA: "(Smith 45)" in the text against "Smith, John." in the list. */
+function surnameIssues(list, lines, issues) {
+  const entries = [];
+  for (const { line, mark } of list.entries) {
+    if (splitWords(line.text).length < 3) continue;
+    const { name, lower } = sortName(withoutMarker(line.text, mark));
+    if (lower) entries.push({ name, lower, line, location: entryLocation(mark, line.text), numbered: Boolean(mark) });
+  }
+  const numericCited = bodyCitations(list, lines).length > 0;
+  const cites = lines.filter((line) => !list.contains(line) && !list.isHeading(line)).flatMap(mlaCitations);
+
+  const reported = [];
+  for (const cite of cites) {
+    const lower = cite.display.toLowerCase();
+    if (entries.some((e) => sameSurname(e.lower, lower)) || reported.includes(lower)) continue;
+    if (issues.length >= MAX_SEQUENCE_ISSUES) return;
+    reported.push(lower);
+    issues.push(citationIssue(
+      `citation-missing-${cite.start}`,
+      'Citation has no matching reference',
+      `No entry for “${cite.display}” in the Works Cited list.`,
+      'medium',
+      'Citation',
+      cite.start,
+      cite.end,
+    ));
+  }
+  if (!cites.length) return;
+  for (const entry of entries) {
+    if (cites.some((cite) => sameSurname(entry.lower, cite.display.toLowerCase()))) continue;
+    if (entry.numbered && numericCited) continue;
+    if (issues.length >= MAX_SEQUENCE_ISSUES) return;
+    issues.push(citationIssue(
+      `reference-uncited-${entry.line.start}`,
+      'Reference is never cited',
+      `Nothing in the text cites “${entry.name}”.`,
+      'low',
+      entry.location,
+      entry.line.start,
+      entry.line.end,
+    ));
+  }
+}
+
+/** Checks a document's reference list and citations against the style the writer chose. */
+function citationStyleIssues(style, documentLength, headings, lines) {
+  const issues = [];
+  const list = findReferenceList(documentLength, headings, lines);
+  if (!list) return issues;
+  const info = STYLE_INFO[style];
+
+  // the list's name
+  const shown = headingText(list.heading.title).replace(/:+$/, '').trim();
+  if (shown.toLowerCase() !== info.listName.toLowerCase()) {
+    issues.push(citationIssue(
+      `heading-${list.heading.start}`,
+      `Reference list should be called “${info.listName}”`,
+      `${style} style calls this list “${info.listName}”; this document calls it “${shown}”.`,
+      'low',
+      'Reference list heading',
+      list.heading.start,
+      list.heading.end,
+    ));
+  }
+
+  // each entry's shape
+  for (const { line, mark } of list.entries) {
+    if (issues.length >= MAX_SEQUENCE_ISSUES) return issues;
+    if (splitWords(line.text).length < 3) continue;
+    const body = withoutMarker(line.text, mark);
+    let pieces;
+    if (style === 'APA') pieces = apaPieces(body, Boolean(mark));
+    else if (style === 'MLA') pieces = mlaPieces(body, Boolean(mark));
+    else pieces = ieeePieces(body, mark);
+    if (!pieces.length) continue;
+    issues.push(citationIssue(
+      `style-${line.start}`,
+      `Reference is not in ${style} style`,
+      `To match ${style} style: ${pieces.join('; ')}. Example: ${info.example}`,
+      'medium',
+      entryLocation(mark, line.text),
+      line.start,
+      line.end,
+    ));
+  }
+
+  // the order of the list
+  if (style !== 'IEEE') {
+    let before = null;
+    for (const { line, mark } of list.entries) {
+      const { name, lower } = sortName(withoutMarker(line.text, mark));
+      if (!lower) continue;
+      if (before && lower < before.lower) {
+        if (issues.length >= MAX_SEQUENCE_ISSUES) return issues;
+        issues.push(citationIssue(
+          `order-${line.start}`,
+          'References are out of order',
+          `“${name}” should come before “${before.name}”: ${style} style lists references alphabetically by the first author's surname.`,
+          'low',
+          entryLocation(mark, line.text),
+          line.start,
+          line.end,
+        ));
+      }
+      before = { name, lower };
+    }
+  }
+
+  if (style === 'IEEE') ieeeOrderIssues(list, lines, issues);
+  else if (style === 'APA') authorYearIssues(list, lines, issues);
+  else surnameIssues(list, lines, issues);
+  return issues;
+}
+
 const label = (sentence) => `Sentence ${sentence.index + 1}`;
 const topic = (shared) => shared.slice(0, 2).join(' / ');
 
 /**
  * Reads a document and reports what is wrong with it.
- * `outline` is the headings (see parseOutline) and `kind` the document's type.
+ * `outline` is the headings (see parseOutline), `kind` the document's type and
+ * `style` the citation style chosen ("APA", "MLA", "IEEE" or "" for none).
  */
-export function analyze(text, outline = '', kind = 'Other') {
+export function analyze(text, outline = '', kind = 'Other', style = '') {
   const sentences = splitSentences(text).slice(0, MAX_SENTENCES);
   const prepared = sentences
     .map((sentence) => ({
@@ -501,6 +1479,11 @@ export function analyze(text, outline = '', kind = 'Other') {
 
   const headings = parseOutline(outline);
   issues.push(...structureIssues(text, headings, kind));
+  const allLines = documentLines(text);
+  issues.push(...numberingIssues(headings, allLines));
+  issues.push(...referenceIssues(text.length, headings, allLines));
+  const chosen = parseStyle(style);
+  if (chosen) issues.push(...citationStyleIssues(chosen, text.length, headings, allLines));
 
   return {
     version: 'javascript',
@@ -510,8 +1493,9 @@ export function analyze(text, outline = '', kind = 'Other') {
       words: wordsOf(text).length,
       numbers: prepared.reduce((total, item) => total + item.numbers.length, 0),
       headings: headings.length,
-      // 9 rules: 3 about the sentences, 6 about the structure.
-      checks: 9,
+      // 16 rules: 3 about the sentences, 6 about the structure, 1 about
+      // numbering, 3 about references and 3 about citation style.
+      checks: 16,
     },
   };
 }

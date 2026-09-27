@@ -6,7 +6,7 @@
  * file has not been built yet it quietly uses the JavaScript version instead,
  * and tells the page which one is running.
  *
- * Messages in:  { type: 'analyze', id, text, outline, kind }
+ * Messages in:  { type: 'analyze', id, text, outline, kind, style }
  * Messages out: { type: 'ready', engine, version, ms }
  *               { type: 'result', id, issues, stats, engine, ms }
  *               { type: 'error', id, message }
@@ -35,7 +35,7 @@ async function loadEngine() {
     engine = {
       name: 'wasm',
       version: wasm.engine_version(),
-      analyze: (text, outline, kind) => JSON.parse(wasm.analyze_json(text, outline, kind)),
+      analyze: (text, outline, kind, style) => JSON.parse(wasm.analyze_json(text, outline, kind, style)),
     };
   } catch (error) {
     engine = {
@@ -62,7 +62,7 @@ self.onmessage = async (event) => {
   await ready;
   const started = performance.now();
   try {
-    const report = engine.analyze(message.text || '', message.outline || '', message.kind || 'Other');
+    const report = engine.analyze(message.text || '', message.outline || '', message.kind || 'Other', message.style || '');
     self.postMessage({
       type: 'result',
       id: message.id,

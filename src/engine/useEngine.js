@@ -5,7 +5,7 @@
  * after typing stops, paints the highlights on the page and hands the page a
  * plain list of issues to show in the review panel.
  *
- *   const engine = useEngine(editor, { enabled: heatmapOn, docId: selectedId, kind: 'Thesis' });
+ *   const engine = useEngine(editor, { enabled: heatmapOn, docId: selectedId, kind: 'Thesis', style: 'APA' });
  *   engine.status     // 'starting' | 'ready' | 'off'
  *   engine.issues     // [{ id, kind, title, message, severity, location, repairs… }]
  *   engine.applyRepair(issue, repair)
@@ -20,7 +20,7 @@ import { usePreference } from '../settings/preferences';
 /** How long to wait after the last keystroke before analysing again. */
 const IDLE_MS = 1200;
 
-export function useEngine(editor, { enabled = true, docId = null, kind = 'Other' } = {}) {
+export function useEngine(editor, { enabled = true, docId = null, kind = 'Other', style = '' } = {}) {
   const [status, setStatus] = useState('starting');
   // Why the engine is off, or why it fell back to JavaScript. Shown to the reader.
   const [engineReason, setEngineReason] = useState('');
@@ -105,8 +105,9 @@ export function useEngine(editor, { enabled = true, docId = null, kind = 'Other'
       text: map.text,
       outline: serializeOutline(map.outline),
       kind,
+      style,
     });
-  }, [editor, kind]);
+  }, [editor, kind, style]);
 
   const schedule = useCallback(() => {
     window.clearTimeout(timerRef.current);
@@ -149,6 +150,7 @@ export function useEngine(editor, { enabled = true, docId = null, kind = 'Other'
     contradiction: openIssues.filter((issue) => issue.kind === 'contradiction').length,
     redundancy: openIssues.filter((issue) => issue.kind === 'redundancy').length,
     structure: openIssues.filter((issue) => issue.kind === 'structure').length,
+    citation: openIssues.filter((issue) => issue.kind === 'citation').length,
   }), [openIssues]);
 
   /** Turns an engine range into an editor range, using the analysed document. */
