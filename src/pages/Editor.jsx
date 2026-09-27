@@ -102,6 +102,7 @@ import { useTheme } from '../components/ThemeContext';
 import { navigate } from '../router';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
+  CITATION_STYLES,
   DOCUMENT_TYPES,
   createDocument as saveNewDocument,
   deleteDocument,
@@ -109,6 +110,7 @@ import {
   listDocuments,
   renameDocument,
   setDocumentIssues,
+  setDocumentCitationStyle,
   setDocumentStatus,
   setDocumentType,
   updateDocument,
@@ -121,8 +123,10 @@ import { findRanges, replaceAll } from '../editor/highlights';
 import { IMPORT_ACCEPT, IMPORT_EXTENSIONS, importFile } from '../editor/importers';
 import { exportDocx, exportTxt, printDocument } from '../editor/exporters';
 import FileDialog from '../editor/FileDialog';
+import CitationDialog from '../editor/CitationDialog';
 import HomeRibbon from '../editor/HomeRibbon';
 import { useEngine } from '../engine/useEngine';
+import { findReferenceRegion, formatEntryText, formatInText, listNameFor, nextIeeeNumber } from '../editor/citations';
 
 /* ==========================================================================
    Content data
@@ -206,7 +210,10 @@ function Editor() {
   const [findQuery, setFindQuery] = useState('');
   const [trackedChanges, setTrackedChanges] = useState(false);
   const [commentCount, setCommentCount] = useState(2);
-  const [showReviewPanel, setShowReviewPanel] = useState(false);
+  // ?review=1 opens the panel straight away (used by the development samples).
+  const [showReviewPanel, setShowReviewPanel] = useState(
+    () => new URLSearchParams(window.location.search).get('review') === '1',
+  );
   const [focusMode, setFocusMode] = useState(false);
   const [pageLayout, setPageLayout] = useState('standard');
   const [documentSearch, setDocumentSearch] = useState('');
@@ -214,6 +221,9 @@ function Editor() {
   const [showRecent, setShowRecent] = useState(false);
   // Which File-menu dialog is open: 'rename' | 'saveAs' | 'move' | 'version' | 'details' | null.
   const [fileDialog, setFileDialog] = useState(null);
+  // The References tab's dialog: { mode: 'insert' | 'manage' } or null.
+  const [citationDialog, setCitationDialog] = useState(null);
+  const insertCitationAtRef = useRef(null); // the cursor position to insert into, captured when the dialog opens
   const folderOptions = useLiveQuery(listFolderOptions, []) ?? [];
   const [heatmapEnabled, setHeatmapEnabled] = useState(true);
   const [documentPanelExpanded, setDocumentPanelExpanded] = useState(true);
@@ -243,6 +253,7 @@ function Editor() {
    */
   const currentRecord = (storedDocuments ?? []).find((doc) => doc.id === selectedId) ?? null;
   const documentKind = currentRecord?.type ?? 'Other';
+  const citationStyle = currentRecord?.citationStyle ?? ''; // 'APA' | 'MLA' | 'IEEE' | '' (none chosen)
   const documentIsDone = currentRecord?.status === 'done';
 
   // One Tiptap editor for the page; documents are swapped into it with setContent.
@@ -269,6 +280,7 @@ function Editor() {
     // document type belongs, `template_for("docx")` finds nothing, and every
     // structure check goes quiet with no error to show for it.
     kind: documentKind,
+    style: citationStyle,
   });
 
   // Which toolbar buttons should look pressed for the text under the cursor.
@@ -505,6 +517,71 @@ function Editor() {
     }
     editor.chain().focus().insertContent(html).run();
     announce(message);
+  };
+
+  /** Opens the References dialog, remembering where the cursor was so a citation lands there. */
+  const openCitationDialog = (mode) => {
+    if (!canEdit()) {
+      announce('Open or create a document first.');
+      return;
+    }
+    insertCitationAtRef.current = editor.state.selection.to;
+    setCitationDialog({ mode, region: findReferenceRegion(editor.state.doc) });
+  };
+
+  /**
+   * Carries out one action from the References dialog: insert an in-text
+   * citation, add a new source (and cite it), edit an entry's text, or remove
+   * one. The dialog only collects values (see CitationDialog.jsx); this is
+   * where they become real edits to the document.
+   *
+   * Each branch re-reads the document's current state right before it changes
+   * it, rather than trusting the region captured when the dialog opened —
+   * inserting the in-text citation first can shift where the reference list
+   * now sits, and a stale position would land the new entry in the wrong
+   * place.
+   */
+  const handleCitationAction = (action) => {
+    if (!canEdit()) return;
+    // The dialog's own choice wins: it is what the writer just picked (or
+    // confirmed) on the standard-picker screen, which may not match the
+    // document's saved style yet — see the sync below.
+    const style = action.style ?? citationStyle;
+    if (style && style !== citationStyle && currentRecord) {
+      setDocumentCitationStyle(currentRecord.id, style).catch((error) => console.error(error));
+    }
+    const at = insertCitationAtRef.current ?? editor.state.doc.content.size;
+    const paragraphNode = (text) => ({ type: 'paragraph', content: text ? [{ type: 'text', text }] : [] });
+    const headingNode = (text) => ({ type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text }] });
+    const insertCiteText = (text) => editor.chain().focus().insertContentAt(at, { type: 'text', text: `${text} ` }).run();
+    const appendEntry = (entryText) => {
+      const region = findReferenceRegion(editor.state.doc);
+      if (region) {
+        editor.chain().focus().insertContentAt(region.sectionEnd, paragraphNode(entryText)).run();
+      } else {
+        editor.chain().focus().insertContentAt(editor.state.doc.content.size, [headingNode(listNameFor(style || 'APA')), paragraphNode(entryText)]).run();
+      }
+    };
+
+    if (action.type === 'insertExisting') {
+      const { entry, page } = action;
+      insertCiteText(formatInText(style, { surname: entry.surname, year: entry.year, number: entry.number ?? 1, page }));
+      announce('Citation inserted');
+    } else if (action.type === 'addNew') {
+      const { source, page } = action;
+      const regionBefore = findReferenceRegion(editor.state.doc);
+      const number = style === 'IEEE' ? nextIeeeNumber(regionBefore?.entries ?? []) : null;
+      insertCiteText(formatInText(style, { surname: source.surname, surname2: source.surname2, year: source.year, number, page }));
+      appendEntry(formatEntryText(style, source, number));
+      announce('Source added and cited');
+    } else if (action.type === 'editEntry') {
+      editor.chain().focus().insertContentAt({ from: action.entry.from, to: action.entry.to }, paragraphNode(action.text)).run();
+      announce('Source updated');
+    } else if (action.type === 'deleteEntry') {
+      editor.chain().focus().deleteRange({ from: action.entry.from, to: action.entry.to }).run();
+      announce('Source removed');
+    }
+    setCitationDialog(null);
   };
 
   /** Adds, changes or removes the link on the selected text. */
@@ -802,6 +879,24 @@ function Editor() {
       announce(next === 'Other'
         ? 'Type set to Other. Sections are no longer checked; wording and repetition still are.'
         : `Type set to ${next}. The structure checks now use the ${next.toLowerCase()} template.`);
+    } catch (error) {
+      console.error(error);
+      announce('That could not be saved.');
+    }
+  };
+
+  /**
+   * Chooses the citation style this document's references are checked against.
+   * Like the type, it is read from the live query, so writing it re-renders
+   * this page with a new `citationStyle` and useEngine analyses again.
+   */
+  const changeCitationStyle = async (next) => {
+    if (!currentRecord || next === citationStyle) return;
+    try {
+      await setDocumentCitationStyle(currentRecord.id, next);
+      announce(next
+        ? `Citation style set to ${next}. Your reference list is now checked against it.`
+        : 'Citation style cleared. Only style-free reference checks remain.');
     } catch (error) {
       console.error(error);
       announce('That could not be saved.');
@@ -1141,9 +1236,21 @@ function Editor() {
                   <div className="editor-ribbon-section">
                     <span className="editor-ribbon-label">Citations</span>
                     <div className="editor-tool-group">
-                      <ToolbarButton icon={Bookmark} label="Insert citation" onClick={() => insertHtml('<span class="editor-citation">[Add citation]</span>&nbsp;', 'Citation placeholder inserted')} />
-                      <ToolbarButton icon={AtSign} label="Manage sources" onClick={() => announce('Source manager opened')} />
-                      <ToolbarButton icon={BookOpen} label="Bibliography" onClick={() => insertHtml('<h2>References</h2><p class="editor-reference-placeholder">Add your references here.</p>', 'References section inserted')} />
+                      <ToolbarButton icon={Bookmark} label="Insert citation" onClick={() => openCitationDialog('insert')} />
+                      <ToolbarButton icon={AtSign} label="Manage sources" onClick={() => openCitationDialog('manage')} />
+                      <ToolbarButton
+                        icon={BookOpen}
+                        label="Bibliography"
+                        onClick={() => {
+                          if (!canEdit()) { announce('Open or create a document first.'); return; }
+                          if (findReferenceRegion(editor.state.doc)) { openCitationDialog('manage'); return; }
+                          editor.chain().focus().insertContentAt(editor.state.doc.content.size, [
+                            { type: 'heading', attrs: { level: 1 }, content: [{ type: 'text', text: listNameFor(citationStyle || 'APA') }] },
+                            { type: 'paragraph', content: [] },
+                          ]).run();
+                          announce(`"${listNameFor(citationStyle || 'APA')}" heading added`);
+                        }}
+                      />
                     </div>
                   </div>
                   <div className="editor-ribbon-section">
@@ -1329,6 +1436,28 @@ function Editor() {
                           ))}
                         </select>
                       </div>
+
+                      {/* The citation standard. Chosen once per document; the
+                          reference list is then read the way that style asks. */}
+                      <div className="editor-scan-kind editor-scan-style">
+                        <label htmlFor="editor-citation-style">Citation style</label>
+                        <select
+                          id="editor-citation-style"
+                          value={citationStyle}
+                          disabled={!currentRecord}
+                          onChange={(event) => changeCitationStyle(event.target.value)}
+                        >
+                          <option value="">Not chosen</option>
+                          {CITATION_STYLES.map((name) => (
+                            <option key={name} value={name}>{name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <p className="editor-scan-hint">
+                        {citationStyle
+                          ? `Write your references under a "${citationStyle === 'MLA' ? 'Works Cited' : 'References'}" heading. Anything that does not follow ${citationStyle} appears below, with what to change.`
+                          : 'Choose the style your course asks for, then write your reference list. DocuMend will say what is missing and how to fix it.'}
+                      </p>
                     </div>
                     <div className="editor-review-heading">
                       <span>Active issues</span>
@@ -1487,6 +1616,16 @@ function Editor() {
           folders={folderOptions}
           onClose={() => setFileDialog(null)}
           onSubmit={submitFileDialog}
+        />
+      )}
+
+      {citationDialog && currentRecord && (
+        <CitationDialog
+          mode={citationDialog.mode}
+          style={citationStyle}
+          region={citationDialog.region}
+          onClose={() => setCitationDialog(null)}
+          onAction={handleCitationAction}
         />
       )}
 
