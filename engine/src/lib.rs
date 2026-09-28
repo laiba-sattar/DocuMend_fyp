@@ -16,6 +16,7 @@
 //!   cargo test --manifest-path engine/Cargo.toml
 
 pub mod citation_style;
+pub mod identifiers;
 pub mod json;
 pub mod numbering;
 pub mod numbers;
@@ -71,6 +72,7 @@ pub fn analyze(document: &str, outline: &str, kind: &str, style: &str) -> Report
     if let Some(style) = citation_style::Style::parse(style) {
         issues.extend(citation_style::run(style, document_len, &headings, &lines));
     }
+    issues.extend(identifiers::run(&lines));
 
     Report {
         stats: Stats {
@@ -78,9 +80,10 @@ pub fn analyze(document: &str, outline: &str, kind: &str, style: &str) -> Report
             words: text::words(document).len(),
             numbers,
             headings: headings.len(),
-            // 16 rules: 3 about the sentences, 6 about the structure, 1 about
-            // numbering, 3 about references and 3 about citation style.
-            checks: 16,
+            // 18 rules: 3 about the sentences, 6 about the structure, 1 about
+            // numbering, 3 about references, 3 about citation style and 2
+            // about identifiers (DOI and ISBN).
+            checks: 18,
         },
         issues,
     }
@@ -212,7 +215,7 @@ mod tests {
         assert_eq!(report.stats.sentences, 2);
         assert_eq!(report.stats.numbers, 2);
         assert_eq!(report.stats.headings, 0);
-        assert_eq!(report.stats.checks, 16);
+        assert_eq!(report.stats.checks, 18);
     }
 
     #[test]
