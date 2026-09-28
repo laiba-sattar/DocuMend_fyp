@@ -116,6 +116,18 @@ export const CHECKS = [
     blurb: 'Needs a citation style. MLA calls the list "Works Cited"; APA and IEEE call it "References".',
     matches: (title) => title.startsWith('Reference list should be called'),
   },
+  {
+    id: 'isbn',
+    kind: 'citation',
+    title: 'ISBN is not valid',
+    blurb: 'An ISBN with the wrong number of digits, or whose check digit doesn’t match the rest of the number.',
+  },
+  {
+    id: 'doi',
+    kind: 'citation',
+    title: 'DOI is not valid',
+    blurb: 'A DOI that doesn’t match the standard shape: "10.", a registrant code, a slash, then the publisher’s suffix.',
+  },
 ];
 
 /** Which rule raised this issue, or null when it is one we do not know. */

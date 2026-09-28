@@ -125,6 +125,59 @@ const cases = [
     ...plain(Array.from({ length: 220 }, (_, i) => `The regional office processed ${100 + i} invoices for the finance department in week ${i % 7}.`).join(' ')),
     kind: 'Other',
   },
+  {
+    name: '"this" vs "another" is not the same topic',
+    ...plain('The budget for this project is PKR 23,000. Later the budget for this project is PKR 20,000. The budget for another project is PKR 70,000.'),
+    kind: 'Other',
+  },
+  {
+    name: '"another" on both sides still compares',
+    ...plain('The budget for another project is PKR 23,000. Later the budget for another project is PKR 20,000.'),
+    kind: 'Other',
+  },
+  {
+    name: '"other" vs plain is not the same topic',
+    ...plain('The clinic reported 40 patients this month. The other clinic reported 65 patients this month.'),
+    kind: 'Other',
+  },
+  {
+    name: 'correct ISBN-10 and ISBN-13 are quiet',
+    ...plain('See ISBN 0-13-468599-7 for the first edition, or ISBN 978-0-13-468599-1 for the second. ISBN-10 0-8044-2957-X also works.'),
+    kind: 'Other',
+  },
+  {
+    name: 'ISBN with a bad check digit',
+    ...plain('See ISBN 978-0-13-468599-2 for details, and ISBN 0-13-468599-1 for the older one.'),
+    kind: 'Other',
+  },
+  {
+    name: 'ISBN with the wrong number of digits',
+    ...plain('The book (ISBN 978-0-13-468) has no proper number.'),
+    kind: 'Other',
+  },
+  {
+    name: 'correct DOIs in different forms are quiet',
+    ...plain('See doi:10.1000/xyz123 and also https://doi.org/10.1038/nphys1170, cited here (doi:10.1000/abc.def.2020).'),
+    kind: 'Other',
+  },
+  {
+    name: 'DOI missing its slash or prefix',
+    ...plain('See doi:10.1000xyz123 for one paper and doi:1000/xyz123 for another.'),
+    kind: 'Other',
+  },
+  {
+    name: 'identifiers inside a reference list',
+    ...withOutline([
+      [1, 'Introduction', 'See the cited work.'],
+      [1, 'References', '[1] A. Author, "A title," Journal, 2020. doi:10.1000/xyz123\n[2] B. Writer, Some Book, 2019. ISBN 978-0-13-468599-2.'],
+    ]),
+    kind: 'Other',
+  },
+  {
+    name: 'a bare number is never mistaken for an identifier',
+    ...plain('The population reached 9780134685991 last year, up from 20,000. She said isbnormal readings were high near the doily shop.'),
+    kind: 'Other',
+  },
 ];
 
 const numberedGap = withOutline([

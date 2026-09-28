@@ -93,6 +93,32 @@ export function contentWords(text) {
 const negationOf = (text) => wordsOf(text).find((w) => NEGATIONS.has(w)) || null;
 const sharedWords = (a, b) => a.filter((w) => b.includes(w));
 
+/**
+ * Words that mark a noun as a different instance from one already mentioned:
+ * "another project", "a different total" — not the one just discussed.
+ */
+const DISTINGUISHERS = new Set(['another', 'other', 'different', 'additional', 'further', 'second', 'next', 'else']);
+
+/** Does `word`'s first appearance in `words` (stopwords included) follow a distinguishing word? */
+function isDistinguished(words, word) {
+  const i = words.indexOf(word);
+  return i > 0 && DISTINGUISHERS.has(words[i - 1]);
+}
+
+/**
+ * `shared`, or nothing at all when one of those words reads as "another X" in
+ * one sentence but plainly as "X" in the other. One such word is enough to
+ * call the whole pair a different topic — "the clinic reported 40 patients
+ * this month" and "the other clinic reported 65 patients this month" share
+ * three more words after "clinic", but they are still two different clinics,
+ * so none of it should be compared. `aWords`/`bWords` are each sentence's
+ * full word list (`wordsOf`, not `contentWords` — the distinguishing words
+ * themselves are stopwords, so they must still be present to check).
+ */
+const distinguish = (aWords, bWords, shared) => (
+  shared.some((word) => isDistinguished(aWords, word) !== isDistinguished(bWords, word)) ? [] : shared
+);
+
 function similarity(a, b) {
   if (!a.length || !b.length) return 0;
   const shared = sharedWords(a, b).length;
@@ -1383,6 +1409,187 @@ function citationStyleIssues(style, documentLength, headings, lines) {
   return issues;
 }
 
+/* ---------------------------------------------------------------------------
+   Identifiers — the same checks as engine/src/identifiers.rs: DOI and ISBN,
+   found by their label rather than guessed from bare digits, so an ordinary
+   number is never mistaken for one. ISBN-10 and ISBN-13 carry a check digit,
+   so a mistyped one is caught exactly; a DOI has no check digit, only a fixed
+   shape, so only that shape is checked. Neither looks anything up online.
+   ------------------------------------------------------------------------- */
+
+const DIGIT_CHARS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'X'];
+
+/** The check digit ISBN-10 requires, given its first nine digits. */
+function isbn10CheckDigit(nine) {
+  const sum = nine.reduce((total, d, i) => total + d * (10 - i), 0);
+  return (11 - (sum % 11)) % 11;
+}
+
+/** The check digit ISBN-13 requires, given its first twelve digits. */
+function isbn13CheckDigit(twelve) {
+  const sum = twelve.reduce((total, d, i) => total + d * (i % 2 === 0 ? 1 : 3), 0);
+  return (10 - (sum % 10)) % 10;
+}
+
+/** Reads the digits (and a possible trailing "X") of an ISBN starting at `start`, with each digit's own position. */
+function readIsbn(chars, start) {
+  let i = start;
+  const digits = [];
+  while (i < chars.length && digits.length < 13) {
+    const c = chars[i];
+    if (isDigit(c)) {
+      digits.push([Number(c), i]);
+      i += 1;
+    } else if (c === '-') {
+      i += 1;
+    } else {
+      break;
+    }
+  }
+  if ((chars[i] === 'x' || chars[i] === 'X') && digits.length === 9) {
+    digits.push([10, i]);
+    i += 1;
+  }
+  return digits.length ? { digits, end: i } : null;
+}
+
+/** Skips an optional "-10"/"-13" after the word "ISBN", then the punctuation between the label and the number. */
+function skipIsbnLabel(chars, i) {
+  let j = i;
+  if (chars[j] === '-' && chars[j + 1] === '1' && (chars[j + 2] === '0' || chars[j + 2] === '3')) j += 3;
+  while (chars[j] === ':' || chars[j] === '-' || chars[j] === ' ') j += 1;
+  return j;
+}
+
+function isbnIssues(chars, at, issues) {
+  for (const end of labelEnds(chars, 'isbn')) {
+    if (issues.length >= MAX_SEQUENCE_ISSUES) return;
+    const numberStart = skipIsbnLabel(chars, end);
+    const found = readIsbn(chars, numberStart);
+    if (!found) continue;
+    const { digits, end: numberEnd } = found;
+    const written = chars.slice(numberStart, numberEnd).join('');
+    const location = `ISBN “${written}”`;
+    const span = [at[numberStart], at[numberEnd]];
+
+    if (digits.length !== 10 && digits.length !== 13) {
+      issues.push(citationIssue(
+        `isbn-length-${span[0]}`,
+        'ISBN is not valid',
+        `“${written}” has ${digits.length} digits; ISBN-10 has 10 and ISBN-13 has 13.`,
+        'medium',
+        location,
+        span[0],
+        span[1],
+      ));
+      continue;
+    }
+
+    const values = digits.map(([d]) => d);
+    const correct = digits.length === 10 ? isbn10CheckDigit(values.slice(0, 9)) : isbn13CheckDigit(values.slice(0, 12));
+    const given = values[values.length - 1];
+    if (given === correct) continue;
+    const [, checkPosition] = digits[digits.length - 1];
+    const checkStart = at[checkPosition];
+    const checkEnd = at[checkPosition + 1];
+    const correctChar = DIGIT_CHARS[correct];
+    const issue = citationIssue(
+      `isbn-check-${span[0]}`,
+      'ISBN is not valid',
+      `“${written}”'s last digit should be ${correctChar} for the rest of the number to check out, not ${DIGIT_CHARS[given]}.`,
+      'medium',
+      location,
+      span[0],
+      span[1],
+    );
+    issue.repairs = [{ label: `Use ${correctChar}`, start: checkStart, end: checkEnd, text: correctChar }];
+    issues.push(issue);
+  }
+}
+
+/** Reads a DOI candidate starting at `start`: up to the next whitespace, minus trailing sentence punctuation. */
+function readDoi(chars, start) {
+  let i = start;
+  while (i < chars.length && !isSpace(chars[i])) i += 1;
+  let end = i;
+  while (end > start && ['.', ',', ')', ']', ';', ':'].includes(chars[end - 1])) end -= 1;
+  return { text: chars.slice(start, end).join(''), end };
+}
+
+/** "10.1000/xyz123" — "10.", a registrant code of four to nine digits, a slash, then a non-empty suffix. */
+function isValidDoi(s) {
+  if (!s.startsWith('10.')) return false;
+  const rest = s.slice(3);
+  const slash = rest.indexOf('/');
+  if (slash < 0) return false;
+  const registrant = rest.slice(0, slash);
+  const suffix = rest.slice(slash + 1);
+  return registrant.length >= 4 && registrant.length <= 9 && /^[0-9]+$/.test(registrant) && suffix.length > 0;
+}
+
+function doiIssues(chars, at, issues) {
+  const ends = [...labelEnds(chars, 'doi:'), ...labelEnds(chars, 'doi.org/')].sort((a, b) => a - b);
+  const seen = new Set();
+  for (const end of ends) {
+    if (seen.has(end)) continue;
+    seen.add(end);
+    if (issues.length >= MAX_SEQUENCE_ISSUES) return;
+    let start = end;
+    while (chars[start] === ' ') start += 1;
+    const { text: written, end: doiEnd } = readDoi(chars, start);
+    if (!written || isValidDoi(written)) continue;
+    issues.push(citationIssue(
+      `doi-${at[start]}`,
+      'DOI is not valid',
+      `“${written}” doesn't match the shape a DOI should have: “10.”, a registrant code, a slash, then the publisher's own suffix — like 10.1000/xyz123.`,
+      'medium',
+      `DOI “${written}”`,
+      at[start],
+      at[doiEnd],
+    ));
+  }
+}
+
+/** Every position right after a whole-word, case-insensitive match of `label` in `chars`. */
+function labelEnds(chars, label) {
+  const n = label.length;
+  const out = [];
+  for (let i = 0; i + n <= chars.length; i += 1) {
+    const beforeOk = i === 0 || !isAlnum(chars[i - 1]);
+    let matches = beforeOk;
+    for (let k = 0; matches && k < n; k += 1) {
+      if (chars[i + k].toLowerCase() !== label[k]) matches = false;
+    }
+    if (matches) out.push(i + n);
+  }
+  return out;
+}
+
+/** UTF-16 offset of each character of a line, plus one for the end. */
+function identifierOffsets(line, chars) {
+  const at = [];
+  let position = line.start;
+  for (const c of chars) {
+    at.push(position);
+    position += c.length;
+  }
+  at.push(position);
+  return at;
+}
+
+/** Checks every DOI and ISBN mentioned anywhere in the document. */
+function identifierIssues(lines) {
+  const issues = [];
+  for (const line of lines) {
+    if (issues.length >= MAX_SEQUENCE_ISSUES) return issues;
+    const chars = Array.from(line.text);
+    const at = identifierOffsets(line, chars);
+    isbnIssues(chars, at, issues);
+    doiIssues(chars, at, issues);
+  }
+  return issues;
+}
+
 const label = (sentence) => `Sentence ${sentence.index + 1}`;
 const topic = (shared) => shared.slice(0, 2).join(' / ');
 
@@ -1397,6 +1604,7 @@ export function analyze(text, outline = '', kind = 'Other', style = '') {
     .map((sentence) => ({
       sentence,
       words: contentWords(sentence.text),
+      allWords: wordsOf(sentence.text),
       numbers: numbersIn(sentence),
       negation: negationOf(sentence.text),
     }))
@@ -1407,7 +1615,10 @@ export function analyze(text, outline = '', kind = 'Other', style = '') {
     for (let j = i + 1; j < prepared.length && issues.length < MAX_ISSUES; j += 1) {
       const a = prepared[i];
       const b = prepared[j];
-      const shared = sharedWords(a.words, b.words);
+      const rawShared = sharedWords(a.words, b.words);
+      // "This project" in one sentence and "another project" in the other
+      // share the word "project", but are not the same topic.
+      const shared = distinguish(a.allWords, b.allWords, rawShared);
       if (shared.length < 2) continue;
       const before = issues.length;
 
@@ -1484,6 +1695,7 @@ export function analyze(text, outline = '', kind = 'Other', style = '') {
   issues.push(...referenceIssues(text.length, headings, allLines));
   const chosen = parseStyle(style);
   if (chosen) issues.push(...citationStyleIssues(chosen, text.length, headings, allLines));
+  issues.push(...identifierIssues(allLines));
 
   return {
     version: 'javascript',
@@ -1493,9 +1705,10 @@ export function analyze(text, outline = '', kind = 'Other', style = '') {
       words: wordsOf(text).length,
       numbers: prepared.reduce((total, item) => total + item.numbers.length, 0),
       headings: headings.length,
-      // 16 rules: 3 about the sentences, 6 about the structure, 1 about
-      // numbering, 3 about references and 3 about citation style.
-      checks: 16,
+      // 18 rules: 3 about the sentences, 6 about the structure, 1 about
+      // numbering, 3 about references, 3 about citation style and 2 about
+      // identifiers (DOI and ISBN).
+      checks: 18,
     },
   };
 }
