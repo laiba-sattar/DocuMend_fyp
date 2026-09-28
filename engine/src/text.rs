@@ -139,6 +139,39 @@ pub fn shared_words(a: &[String], b: &[String]) -> Vec<String> {
     a.iter().filter(|w| b.contains(w)).cloned().collect()
 }
 
+/// Words that mark a noun as a different instance from one already mentioned:
+/// "another project", "a different total" — not the one just discussed.
+const DISTINGUISHERS: &[&str] = &["another", "other", "different", "additional", "further", "second", "next", "else"];
+
+/// Does `word`'s first appearance in `words` (the sentence's full word list,
+/// stopwords included) immediately follow a distinguishing word?
+fn is_distinguished(words: &[String], word: &str) -> bool {
+    match words.iter().position(|w| w == word) {
+        Some(0) | None => false,
+        Some(i) => DISTINGUISHERS.contains(&words[i - 1].as_str()),
+    }
+}
+
+/// `shared`, or nothing at all when one of those words reads as "another X"
+/// in one sentence but plainly as "X" in the other. One such word is enough
+/// to call the whole pair a different topic — "the clinic reported 40
+/// patients this month" and "the other clinic reported 65 patients this
+/// month" share three more words after "clinic", but they are still two
+/// different clinics, so none of it should be compared. `a_words`/`b_words`
+/// are each sentence's full word list (`words`, not `content_words` — the
+/// distinguishing words themselves are stopwords, so they must still be in
+/// the list to check).
+pub fn distinguish(a_words: &[String], b_words: &[String], shared: Vec<String>) -> Vec<String> {
+    let differs = shared
+        .iter()
+        .any(|word| is_distinguished(a_words, word) != is_distinguished(b_words, word));
+    if differs {
+        Vec::new()
+    } else {
+        shared
+    }
+}
+
 /// 0.0 – 1.0. 1.0 means the two sentences use exactly the same words.
 pub fn similarity(a: &[String], b: &[String]) -> f64 {
     if a.is_empty() || b.is_empty() {
@@ -234,5 +267,21 @@ mod tests {
     fn finds_negation() {
         assert_eq!(negation("The data is not shared."), Some("not".to_string()));
         assert_eq!(negation("The data is shared."), None);
+    }
+
+    #[test]
+    fn distinguish_vetoes_the_whole_pair_when_one_word_means_something_else() {
+        let a = words("the budget for this project is high");
+        let b = words("the budget for another project is high");
+        let shared = shared_words(&content_words(&a.join(" ")), &content_words(&b.join(" ")));
+        assert!(distinguish(&a, &b, shared).is_empty());
+    }
+
+    #[test]
+    fn distinguish_keeps_a_word_neither_side_singles_out() {
+        let a = words("the budget for this project is high");
+        let b = words("the budget for this project is low");
+        let shared = shared_words(&content_words(&a.join(" ")), &content_words(&b.join(" ")));
+        assert_eq!(distinguish(&a, &b, shared), vec!["budget", "project"]);
     }
 }

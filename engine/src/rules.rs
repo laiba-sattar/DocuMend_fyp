@@ -12,7 +12,7 @@
 //! click.
 
 use crate::numbers::{numbers_in, NumberFact};
-use crate::text::{content_words, negation, shared_words, similarity, Sentence};
+use crate::text::{content_words, distinguish, negation, shared_words, similarity, words, Sentence};
 
 /// A stretch of the document.
 #[derive(Debug, Clone, PartialEq)]
@@ -76,7 +76,12 @@ const CLAIM_SIMILARITY: f64 = 0.5;
 
 struct Prepared<'a> {
     sentence: &'a Sentence,
+    /// The sentence's content words (see `content_words`) — what "shared"
+    /// means for the checks below.
     words: Vec<String>,
+    /// Every word, stopwords included. `distinguish` needs "this"/"another",
+    /// which `content_words` drops as too common to signal a shared topic.
+    all_words: Vec<String>,
     numbers: Vec<NumberFact>,
     negation: Option<String>,
 }
@@ -89,6 +94,7 @@ pub fn run(sentences: &[Sentence]) -> Vec<Issue> {
         .map(|sentence| Prepared {
             sentence,
             words: content_words(&sentence.text),
+            all_words: words(&sentence.text),
             numbers: numbers_in(sentence),
             negation: negation(&sentence.text),
         })
@@ -102,6 +108,9 @@ pub fn run(sentences: &[Sentence]) -> Vec<Issue> {
                 return issues;
             }
             let shared = shared_words(&a.words, &b.words);
+            // "This project" in one sentence and "another project" in the
+            // other share the word "project", but are not the same topic.
+            let shared = distinguish(&a.all_words, &b.all_words, shared);
             if shared.len() < 2 {
                 continue;
             }
@@ -294,6 +303,33 @@ mod tests {
              The lab equipment budget stays PKR 45,000.",
         );
         assert!(found.is_empty());
+    }
+
+    #[test]
+    fn a_different_project_is_not_compared() {
+        let found = issues_of(
+            "The budget for this project is PKR 23,000. \
+             Later the budget for this project is PKR 20,000. \
+             The budget for another project is PKR 70,000.",
+        );
+        // The two sentences about "this project" still conflict.
+        assert!(found.iter().any(|i| i.title == "Numbers do not match"
+            && i.message.contains("23,000")
+            && i.message.contains("20,000")));
+        // Nothing compares against the unrelated project's figure.
+        assert!(!found.iter().any(|i| i.message.contains("70,000")));
+    }
+
+    #[test]
+    fn the_same_distinguisher_on_both_sides_still_compares() {
+        // Two different sentences both calling it "another project" could be
+        // talking about the same one; that is still worth a second look.
+        let found = issues_of(
+            "The budget for another project is PKR 23,000. \
+             Later the budget for another project is PKR 20,000.",
+        );
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].title, "Numbers do not match");
     }
 
     #[test]
