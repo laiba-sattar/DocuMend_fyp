@@ -43,6 +43,7 @@ import {
 } from '../storage/quota';
 import { deleteOldAutoVersions } from '../storage/versions';
 import { clockTime } from '../storage/format';
+import { deleteNliModels, nliModelBytes } from '../engine/nliModelCache';
 import './storage.css';
 
 export default function Storage() {
@@ -62,6 +63,11 @@ export default function Storage() {
   const [report, setReport] = useState(null);
   const [lastCheck, setLastCheck] = useState(null);
   const [confirmAction, setConfirmAction] = useState(null);
+  // S7 — bytes the on-device NLI model is using, read from Cache Storage
+  // rather than the Dexie-based report above (see engine/nliModelCache.js).
+  const [nliBytes, setNliBytes] = useState(0);
+  const refreshNliBytes = () => { nliModelBytes().then(setNliBytes).catch(() => setNliBytes(0)); };
+  useEffect(() => { refreshNliBytes(); }, []);
 
   const notify = (msg) => {
     setToast(msg);
@@ -114,6 +120,10 @@ export default function Storage() {
         await wipeAllData();
         notify('All local data deleted.');
         window.setTimeout(() => window.location.reload(), 800);
+      } else if (actionId === 'nli-model') {
+        await deleteNliModels();
+        notify('The on-device meaning model has been removed. It downloads again next time it is turned on.');
+        refreshNliBytes();
       }
     } catch (error) {
       console.error(error);
@@ -342,15 +352,17 @@ export default function Storage() {
               <div className="stor-bd-header">
                 <div className="stor-bd-title">
                   <Cpu size={16} className="stor-color-purple" />
-                  <h4>Local Vector Index</h4>
+                  <h4>On-device meaning model</h4>
                 </div>
-                <span className="stor-bd-size">0 B</span>
+                <span className="stor-bd-size">{formatBytes(nliBytes)}</span>
               </div>
-              <p>Indexed embeddings used by ODIE for offline contradiction scans.</p>
+              <p>The small language model ODIE uses to catch contradictions that don&rsquo;t share any words.</p>
               <div className="stor-bd-mini-bar">
-                <div className="stor-bd-fill stor-bg-purple" style={{ width: '0%' }} />
+                <div className="stor-bd-fill stor-bg-purple" style={{ width: `${report?.usage ? Math.min(100, (nliBytes / report.usage) * 100) : 0}%` }} />
               </div>
-              <span className="stor-bd-meta">Filled once the on-device AI models are added (S7)</span>
+              <span className="stor-bd-meta">
+                {nliBytes ? 'Downloaded — turn it off in Settings to stop it running.' : 'Not downloaded — turned on from Settings → Checks (S7).'}
+              </span>
             </div>
           </section>
 
@@ -399,6 +411,34 @@ export default function Storage() {
                       </button>
                     </td>
                   </tr>
+
+                  {nliBytes > 0 && (
+                    <tr>
+                      <td>
+                        <div className="stor-action-cell">
+                          <strong>Delete the on-device meaning model</strong>
+                          <span>Frees the model&rsquo;s storage; it downloads again if turned back on in Settings</span>
+                        </div>
+                      </td>
+                      <td>
+                        <span className="stor-frees-tag">{formatBytes(nliBytes)}</span>
+                      </td>
+                      <td>
+                        <span className="stor-risk-pill stor-risk-safe">
+                          <CheckCircle2 size={12} /> Safe
+                        </span>
+                      </td>
+                      <td className="stor-td-action">
+                        <button
+                          type="button"
+                          className="stor-run-action-btn stor-btn-green"
+                          onClick={() => handleRunAction('nli-model')}
+                        >
+                          Run
+                        </button>
+                      </td>
+                    </tr>
+                  )}
 
                   <tr>
                     <td>

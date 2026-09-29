@@ -61,7 +61,6 @@ Indexed: `key` (key). One row per setting, e.g. `{ key: "hybridMode", value: "of
 |---|---|---|
 | `analysis` | S6 | issues found per document: type, character range, confidence, status |
 | `citations` | S8 | DOI, fetched metadata, style, valid / invalid |
-| `embeddings` | S7 | one vector per paragraph, for self-plagiarism |
 | `auditLog` | S3 | append-only, each entry hashes the previous one |
 | `syncQueue` | S9 | document id, checksum, retry count, status |
 | `keys` | S3 | the wrapped (locked) data key and its salt |

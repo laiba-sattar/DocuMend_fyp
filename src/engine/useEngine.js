@@ -12,6 +12,14 @@
  *   engine.applyRepair(issue, repair)
  *   engine.goToIssue(issue)
  *   engine.ignoreIssue(issue)
+ *
+ * S7 — the on-device NLI model, when the reader has switched it on in
+ * Settings (`nliEnabled` preference): it answers well after the checks
+ * above, for the same request, and its issues are folded into `issues` /
+ * `allIssues` once they arrive. `engine.nliStatus` ('off'|'loading'|'ready'|
+ * 'error'), `engine.nliChecking` (true while this request's NLI pass is
+ * still running), `engine.nliProgress` and `engine.nliErrorMessage` are for
+ * showing that separately.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildTextMap, highlightClass, serializeOutline, toRange } from './textmap';
@@ -27,6 +35,8 @@ export function useEngine(editor, { enabled = true, docId = null, kind = 'Other'
   const [engineReason, setEngineReason] = useState('');
   // Checks the reader switched off on the Settings page.
   const [mutedChecks] = usePreference('mutedChecks');
+  // Whether the on-device NLI model (S7) is turned on in Settings.
+  const [nliEnabled] = usePreference('nliEnabled');
   const [engineName, setEngineName] = useState(null);
   const [issues, setIssues] = useState([]);
   const [stats, setStats] = useState(null);
@@ -34,6 +44,17 @@ export function useEngine(editor, { enabled = true, docId = null, kind = 'Other'
   const [analyzing, setAnalyzing] = useState(false);
   const [dismissed, setDismissed] = useState({});
   const [outline, setOutline] = useState([]); // the document's headings
+  // S7 — separate from `issues`: it answers well after the deterministic
+  // result, for the same request, and must never delay or replace it.
+  const [nliStatus, setNliStatus] = useState('off'); // 'off' | 'loading' | 'ready' | 'error'
+  const [nliProgress, setNliProgress] = useState(null);
+  const [nliErrorMessage, setNliErrorMessage] = useState('');
+  const [nliIssues, setNliIssues] = useState([]);
+  const [nliRequestId, setNliRequestId] = useState(null); // which analysis `nliIssues` belongs to
+  // A render-safe mirror of requestRef.current (see below) — reading a ref
+  // during render is what requestRef itself is for internally, but a value
+  // rendered on screen (nliChecking) needs a state React knows to react to.
+  const [currentRequestId, setCurrentRequestId] = useState(0);
 
   const workerRef = useRef(null);
   const timerRef = useRef(0);
@@ -76,6 +97,19 @@ export function useEngine(editor, { enabled = true, docId = null, kind = 'Other'
       if (message.type === 'error') {
         setAnalyzing(false);
         console.error('Analysis failed:', message.message);
+        return;
+      }
+      // ---- S7: the on-device NLI pass, separate from the result above ----
+      if (message.type === 'nli-status') {
+        setNliStatus(message.state);
+        setNliProgress(message.state === 'loading' ? (message.progress ?? null) : null);
+        if (message.state === 'error') setNliErrorMessage(message.message ?? 'The on-device model failed to load.');
+        return;
+      }
+      if (message.type === 'nli-result') {
+        if (message.id !== requestRef.current) return; // superseded by a newer analysis
+        setNliIssues(message.issues);
+        setNliRequestId(message.id);
       }
     };
     worker.onerror = (event) => {
@@ -91,6 +125,13 @@ export function useEngine(editor, { enabled = true, docId = null, kind = 'Other'
     };
   }, []);
 
+  // ---- S7: turning the on-device NLI model on or off -----------------------
+  useEffect(() => {
+    const worker = workerRef.current;
+    if (!worker || status !== 'ready') return;
+    worker.postMessage({ type: nliEnabled ? 'enable-nli' : 'disable-nli' });
+  }, [nliEnabled, status]);
+
   // ---- asking for an analysis ---------------------------------------------
   const runNow = useCallback(() => {
     const worker = workerRef.current;
@@ -99,6 +140,7 @@ export function useEngine(editor, { enabled = true, docId = null, kind = 'Other'
     analysisRef.current = { doc: editor.state.doc, map };
     setOutline(map.outline);
     requestRef.current += 1;
+    setCurrentRequestId(requestRef.current);
     setAnalyzing(true);
     worker.postMessage({
       type: 'analyze',
@@ -138,12 +180,12 @@ export function useEngine(editor, { enabled = true, docId = null, kind = 'Other'
    * still finds them; the writer has said they do not want to be told.
    */
   const openIssues = useMemo(
-    () => issues.filter((issue) => {
+    () => [...issues, ...nliIssues].filter((issue) => {
       if (dismissed[issue.id]) return false;
       const check = checkIdOf(issue);
       return !(check && mutedChecks.includes(check));
     }),
-    [issues, dismissed, mutedChecks],
+    [issues, nliIssues, dismissed, mutedChecks],
   );
 
   /**
@@ -280,6 +322,10 @@ export function useEngine(editor, { enabled = true, docId = null, kind = 'Other'
     setDismissed((current) => ({ ...current, [issue.id]: 'ignored' }));
   }, []);
 
+  // Ready, and the model has already answered this exact request: nothing to wait for.
+  // While it is loading, or has been asked but has not answered this request yet, say so.
+  const nliChecking = nliEnabled && (nliStatus === 'loading' || (nliStatus === 'ready' && nliRequestId !== currentRequestId));
+
   return {
     status,
     engineName,
@@ -292,6 +338,11 @@ export function useEngine(editor, { enabled = true, docId = null, kind = 'Other'
     stats,
     lastRunMs,
     dismissedCount: Object.keys(dismissed).length,
+    nliEnabled,
+    nliStatus,
+    nliProgress,
+    nliErrorMessage,
+    nliChecking,
     reanalyze: runNow,
     goToIssue,
     goToOffset,

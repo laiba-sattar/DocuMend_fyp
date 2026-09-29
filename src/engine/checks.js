@@ -30,6 +30,12 @@ export const CHECKS = [
     blurb: 'Nearly the same sentence appears twice, one of them negated.',
   },
   {
+    id: 'nli-contradiction',
+    kind: 'contradiction',
+    title: 'Claims may disagree',
+    blurb: 'A small on-device language model flagged two sentences as possibly conflicting, even though they don’t share the same words. Lower confidence than the other checks — worth a second look before trusting it.',
+  },
+  {
     id: 'repeat',
     kind: 'redundancy',
     title: 'Repeated sentence',

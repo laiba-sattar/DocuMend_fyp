@@ -24,6 +24,8 @@ export const DEFAULTS = {
   mutedChecks: [],
   /** Hide document titles in lists until pointed at. */
   privacyMode: false,
+  /** Download and run the on-device NLI model for softer contradictions (S7). */
+  nliEnabled: false,
 };
 
 export async function getPreference(key) {

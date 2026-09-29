@@ -49,6 +49,7 @@ import { useAuth } from '../components/AuthContext';
 import { navigate } from '../router';
 import { TEMPLATES } from '../engine/fallback';
 import { CHECKS, KIND_LABELS } from '../engine/checks';
+import { deleteNliModels, nliModelBytes } from '../engine/nliModelCache';
 import { usePreference } from '../settings/preferences';
 import { formatBytes, formatPercent, getStorageReport, wipeAllData } from '../storage/quota';
 import './settings.css';
@@ -103,6 +104,21 @@ export default function Settings() {
     () => KINDS.find((entry) => entry.name === defaultKind) ?? KINDS[0],
     [defaultKind],
   );
+  // The "nli-contradiction" check has its own card below (it needs a download,
+  // not just a switch), so it is left out of the plain on/off list.
+  const switchableChecks = useMemo(() => CHECKS.filter((check) => check.id !== 'nli-contradiction'), []);
+
+  // --- S7: the on-device model that reads meaning, not just words -----------
+  const [nliEnabled, setNliEnabled] = usePreference('nliEnabled');
+  const [nliBytes, setNliBytes] = useState(null);
+  const refreshNliBytes = () => { nliModelBytes().then(setNliBytes).catch(() => setNliBytes(0)); };
+  useEffect(() => { refreshNliBytes(); }, []);
+
+  const removeNliModel = async () => {
+    await deleteNliModels();
+    refreshNliBytes();
+    notify('The on-device model has been removed.');
+  };
 
   // --- real browser storage -------------------------------------------------
   const [storage, setStorage] = useState(null);
@@ -557,12 +573,12 @@ export default function Settings() {
                       </div>
                     </div>
                     <span className="set-v2-badge-verified">
-                      <CheckCircle2 size={12} /> {CHECKS.length - mutedChecks.length} of {CHECKS.length} on
+                      <CheckCircle2 size={12} /> {switchableChecks.filter((c) => !mutedChecks.includes(c.id)).length} of {switchableChecks.length} on
                     </span>
                   </div>
 
                   <div className="set-v2-rules-list">
-                    {CHECKS.map((check) => {
+                    {switchableChecks.map((check) => {
                       const on = !mutedChecks.includes(check.id);
                       return (
                         <div key={check.id} className="set-v2-rule-card">
@@ -592,6 +608,66 @@ export default function Settings() {
                       No sentence of yours leaves the device to be analysed.
                     </span>
                   </div>
+                </div>
+
+                {/* S7 — a separate card, not another row above: turning this on
+                    means a real download (tens of megabytes) and a slower,
+                    lower-confidence check, so it gets its own explanation
+                    rather than looking like an instant switch. */}
+                <div className="set-v2-card-glass">
+                  <div className="set-v2-diag-head">
+                    <div className="set-v2-diag-title-wrap">
+                      <Cpu size={18} className="set-v2-accent-icon" />
+                      <div>
+                        <h4>Reading meaning, not just words</h4>
+                        <p>
+                          A small language model, downloaded once and run only on this
+                          device, to catch two sentences that disagree without repeating
+                          each other&rsquo;s words. Off by default: it is a real download,
+                          and slower and less certain than the checks above.
+                        </p>
+                      </div>
+                    </div>
+                    <label className="set-v2-switch">
+                      <span className="dash-sr">Turn on the on-device meaning check</span>
+                      <input type="checkbox" checked={nliEnabled} onChange={(event) => setNliEnabled(event.target.checked)} />
+                      <span className="set-v2-slider" />
+                    </label>
+                  </div>
+
+                  {nliEnabled && (
+                    <>
+                      <p className="set-v2-field-note">
+                        {nliBytes
+                          ? `Downloaded — using ${formatBytes(nliBytes)} of storage.`
+                          : 'Not downloaded yet — it starts the first time you open a document after turning this on.'}
+                      </p>
+                      {CHECKS.filter((check) => check.id === 'nli-contradiction').map((check) => {
+                        const on = !mutedChecks.includes(check.id);
+                        return (
+                          <div key={check.id} className="set-v2-rule-card">
+                            <div className="set-v2-rule-info">
+                              <div className="set-v2-rule-title">
+                                <strong>{check.title}</strong>
+                                <span className={on ? 'set-v2-pill-on' : 'set-v2-pill-off'}>{KIND_LABELS[check.kind]}</span>
+                              </div>
+                              <p>{check.blurb}</p>
+                            </div>
+                            <label className="set-v2-switch">
+                              <span className="dash-sr">{check.title}</span>
+                              <input type="checkbox" checked={on} onChange={() => toggleCheck(check)} />
+                              <span className="set-v2-slider" />
+                            </label>
+                          </div>
+                        );
+                      })}
+                      {nliBytes > 0 && (
+                        <button type="button" className="set-v2-secondary-btn" onClick={removeNliModel}>
+                          <Trash2 size={14} /> Delete the downloaded model
+                        </button>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
             </div>

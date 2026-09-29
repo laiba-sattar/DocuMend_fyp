@@ -8,6 +8,7 @@
     "build": "vite build",
     "lint": "oxlint",
     "test:engine": "node scripts/engine-parity.mjs",
+    "test:nli": "node --test scripts/nli-candidates.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -26,6 +27,7 @@
     "@tiptap/extensions": "^3.30.6",
     "@tiptap/react": "^3.30.6",
     "@tiptap/starter-kit": "^3.30.6",
+    "@xenova/transformers": "^2.17.2",
     "dexie": "^4.4.6",
     "dexie-react-hooks": "^4.4.0",
     "docx": "^9.1.0",

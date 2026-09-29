@@ -7,12 +7,20 @@
  * and tells the page which one is running.
  *
  * Messages in:  { type: 'analyze', id, text, outline, kind, style }
+ *               { type: 'enable-nli' } / { type: 'disable-nli' }
  * Messages out: { type: 'ready', engine, version, ms }
  *               { type: 'result', id, issues, stats, engine, ms }
  *               { type: 'error', id, message }
+ *               { type: 'nli-status', state: 'loading'|'ready'|'error', progress?, message? }
+ *               { type: 'nli-result', id, issues, ms }
  *
  * Build the Rust engine with:
  *   wasm-pack build engine --target web --out-dir ../src/engine/pkg
+ *
+ * The NLI pass (S7, see nli.js) is separate from the engine above on purpose:
+ * it is JavaScript-only (a transformer cannot run inside the Rust/WASM
+ * binary), off by default, and answers well after the deterministic `result`
+ * — never before it, and never blocking it.
  */
 import { analyze as analyzeWithJs } from './fallback';
 
@@ -56,9 +64,63 @@ async function loadEngine() {
 
 const ready = loadEngine();
 
+/* ---------------------------------------------------------------------------
+   S7 — the on-device NLI pass. Off until the reader turns it on in Settings;
+   see nli.js for why it lives entirely in JavaScript.
+   ------------------------------------------------------------------------- */
+let nliEnabled = false;
+// Bumped on every 'analyze', so an in-flight NLI pass from an older request
+// can tell it has been superseded and stop early instead of finishing a scan
+// for a document the writer already changed.
+let latestRequestId = 0;
+
+async function enableNli() {
+  nliEnabled = true;
+  self.postMessage({ type: 'nli-status', state: 'loading' });
+  try {
+    const { ensurePipelines } = await import('./nli');
+    await ensurePipelines((progress) => self.postMessage({ type: 'nli-status', state: 'loading', progress }));
+    self.postMessage({ type: 'nli-status', state: 'ready' });
+  } catch (error) {
+    console.error('[nli] failed to load', error);
+    nliEnabled = false;
+    self.postMessage({ type: 'nli-status', state: 'error', message: error?.message ?? String(error) });
+  }
+}
+
+function disableNli() {
+  nliEnabled = false;
+  self.postMessage({ type: 'nli-status', state: 'off' });
+}
+
+async function runNliFor(message, deterministicIssues) {
+  const requestId = message.id;
+  const isStale = () => requestId !== latestRequestId;
+  if (isStale()) return;
+  const started = performance.now();
+  try {
+    const { runNli } = await import('./nli');
+    const issues = await runNli(message.text || '', deterministicIssues, { isStale });
+    if (isStale()) return;
+    self.postMessage({ type: 'nli-result', id: requestId, issues, ms: Math.round(performance.now() - started) });
+  } catch (error) {
+    if (isStale()) return;
+    self.postMessage({ type: 'nli-status', state: 'error', message: error?.message ?? String(error) });
+  }
+}
+
 self.onmessage = async (event) => {
   const message = event.data || {};
+  if (message.type === 'enable-nli') {
+    enableNli();
+    return;
+  }
+  if (message.type === 'disable-nli') {
+    disableNli();
+    return;
+  }
   if (message.type !== 'analyze') return;
+  latestRequestId = message.id;
   await ready;
   const started = performance.now();
   try {
@@ -71,6 +133,7 @@ self.onmessage = async (event) => {
       engine: engine.name,
       ms: Math.round(performance.now() - started),
     });
+    if (nliEnabled) runNliFor(message, report.issues ?? []);
   } catch (error) {
     self.postMessage({ type: 'error', id: message.id, message: error?.message ?? String(error) });
   }

@@ -1423,6 +1423,23 @@ function Editor() {
                         </span>
                       </div>
 
+                      {/* S7 — the on-device model runs after the checks above, for the
+                          same document, and can take a few seconds. This says so,
+                          rather than leaving the reader wondering why a contradiction
+                          shows up a moment after the rest of the scan already finished. */}
+                      {engine.nliEnabled && (
+                        <div className="editor-scan-row editor-scan-nli">
+                          <span className="editor-scan-label">
+                            <span className="editor-scan-dot" />
+                            {engine.nliStatus === 'error'
+                              ? (engine.nliErrorMessage || 'The on-device model failed to load.')
+                              : engine.nliChecking
+                                ? 'Reading for meaning, not just words…'
+                                : 'Meaning check done'}
+                          </span>
+                        </div>
+                      )}
+
                       {/* The document's type, as a control rather than a label.
                           It decides which template the structure checks measure
                           against, and it used to be fixed at the moment the
