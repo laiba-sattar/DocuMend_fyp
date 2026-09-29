@@ -178,6 +178,59 @@ const cases = [
     ...plain('The population reached 9780134685991 last year, up from 20,000. She said isbnormal readings were high near the doily shop.'),
     kind: 'Other',
   },
+  {
+    name: 'punctuation and spelling: a clean paragraph is quiet',
+    ...plain('This is a normal paragraph. It has no repeats, no stray spaces, and consistent spelling throughout the document, colour included.'),
+    kind: 'Other',
+  },
+  {
+    name: 'punctuation: spacing mistakes of every kind',
+    ...plain('This  has extra spaces . It also has a comma,stuck to the next word; and a semicolon,too. Wait!! Really?? Oh no.. that is odd..... but fine... and fine.... too.'),
+    kind: 'Other',
+  },
+  {
+    name: 'punctuation: URLs, decimals and abbreviations stay quiet',
+    ...plain('See example.com or version 3.5 or the U.S. figures, at 3:30pm, with 1,234 units, e.g. this one.'),
+    kind: 'Other',
+  },
+  {
+    name: 'spelling: repeated words and mixed variants',
+    ...plain('We need to the the fix this soon. The colour scheme is nice, but we chose this color for the logo. We should organise the files; yesterday we organize the archive too. Yes, yes, that is right.'),
+    kind: 'Other',
+  },
+  {
+    name: 'spelling: one consistent spelling throughout is quiet',
+    ...plain('The colour scheme is nice. We kept the same colour for the logo and organised everything the same way, again and again organised.'),
+    kind: 'Other',
+  },
+  {
+    name: 'punctuation and spelling together inside a reference list',
+    ...withOutline([
+      [1, 'Introduction', 'See the cited work,here. It behaves well..'],
+      [1, 'References', '[1] A. Author, "A colour study," Journal, 2020.\n[2] B. Writer, "A color study," Journal, 2019.'],
+    ]),
+    kind: 'Other',
+  },
+  {
+    name: 'spelling: an unrecognised word gets ranked suggestions',
+    ...plain('I want to recieve the package soon, and the definately outdated report was recieved yesterday.'),
+    kind: 'Other',
+  },
+  {
+    name: 'spelling: capitalized and short unknown words are left alone',
+    ...plain('Zephyrine walked to the market. He said ab to me, then met Xanthoria near the Kwikzil office.'),
+    kind: 'Other',
+  },
+  {
+    name: 'spelling: a lone variant spelling is never flagged as misspelled',
+    ...plain('The colour scheme stayed the same. We will organise the meeting and behaviour throughout the centre.'),
+    kind: 'Other',
+  },
+  {
+    name: 'spelling: long realistic paragraph with a mix of everything',
+    ...plain('This is a normal paragraph aboutt the project. It has a stray  space and a comma,here. The colour scheme is consistent, but we recieved feedback that the the plan needs revisiting. We should organise the archive; the organized files were helpful. Wait!! Really?? Oh well..'),
+    kind: 'Other',
+  },
 ];
 
 const numberedGap = withOutline([

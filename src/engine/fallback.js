@@ -9,6 +9,8 @@
  * The report has exactly the shape the Rust engine returns, so nothing else in
  * the app needs to know which one answered.
  */
+import { DICTIONARY_WORDS } from './dictionary.js';
+import { WORDLIST_WORDS } from './wordlist.js';
 
 const STOPWORDS = new Set([
   'about', 'after', 'again', 'against', 'along', 'also', 'although', 'always', 'among', 'another',
@@ -1590,6 +1592,432 @@ function identifierIssues(lines) {
   return issues;
 }
 
+/* ---------------------------------------------------------------------------
+   Punctuation — the same checks as engine/src/punctuation.rs: spacing around
+   a mark, and a mark repeated past what is ever correct. A period is left
+   out of "missing space after" on purpose — see the Rust file's own comment
+   for why ("example.com", "3.5" and "e.g." all have one correctly).
+   ------------------------------------------------------------------------- */
+
+function mechanicalIssue(id, title, message, start, end, related = [], repairs = []) {
+  return {
+    id, kind: 'structure', title, message, severity: 'low', location: '', start, end,
+    related, repairs, suggestion: null, outline: [],
+  };
+}
+
+const SPACED_MARKS = new Set(['.', ',', ';', ':', '!', '?']);
+const AFTER_MARKS = new Set([',', ';', ':', '!', '?']);
+
+function punctuationOffsets(line, chars) {
+  const at = [];
+  let position = line.start;
+  for (const c of chars) {
+    at.push(position);
+    position += c.length;
+  }
+  at.push(position);
+  return at;
+}
+
+function spacingIssues(chars, at, issues) {
+  for (let i = 0; i < chars.length; i += 1) {
+    if (issues.length >= MAX_SEQUENCE_ISSUES) return;
+    const c = chars[i];
+
+    if (c === ' ' && chars[i + 1] === ' ' && (i === 0 || chars[i - 1] !== ' ')) {
+      let j = i;
+      while (chars[j] === ' ') j += 1;
+      issues.push(mechanicalIssue(
+        `punct-extra-space-${at[i]}`,
+        'Extra space',
+        `${j - i} spaces in a row here; one is enough.`,
+        at[i],
+        at[j],
+        [],
+        [{ label: 'Use one space', start: at[i], end: at[j], text: ' ' }],
+      ));
+      continue;
+    }
+
+    if (SPACED_MARKS.has(c) && i >= 1 && chars[i - 1] === ' ' && (i < 2 || chars[i - 2] !== ' ')) {
+      issues.push(mechanicalIssue(
+        `punct-space-before-${at[i - 1]}`,
+        'Space before punctuation',
+        `There is a space before the “${c}” here — it usually reads better right after the word.`,
+        at[i - 1],
+        at[i + 1],
+        [],
+        [{ label: 'Remove the space', start: at[i - 1], end: at[i + 1], text: c }],
+      ));
+      continue;
+    }
+
+    if (AFTER_MARKS.has(c) && /\p{Alphabetic}/u.test(chars[i + 1] || '')) {
+      issues.push(mechanicalIssue(
+        `punct-space-after-${at[i]}`,
+        'Missing space after punctuation',
+        `There is no space after the “${c}” here, before “${chars[i + 1]}”.`,
+        at[i],
+        at[i + 2],
+        [],
+        [{ label: 'Add a space', start: at[i], end: at[i + 2], text: `${c} ${chars[i + 1]}` }],
+      ));
+    }
+  }
+}
+
+/** A run's length is fine unless the mark is never doubled, or it is a period run other than 1, 3 or 4. */
+function runIsSuspicious(mark, length) {
+  if (mark === '.') return ![1, 3, 4].includes(length);
+  return length >= 2;
+}
+
+function repeatedMarkIssues(chars, at, issues) {
+  const marks = new Set(['.', ',', ';', '!', '?']);
+  let i = 0;
+  while (i < chars.length) {
+    if (issues.length >= MAX_SEQUENCE_ISSUES) return;
+    const c = chars[i];
+    if (!marks.has(c)) {
+      i += 1;
+      continue;
+    }
+    let j = i + 1;
+    while (chars[j] === c) j += 1;
+    const length = j - i;
+    if (runIsSuspicious(c, length)) {
+      const written = chars.slice(i, j).join('');
+      issues.push(mechanicalIssue(
+        `punct-repeat-${at[i]}`,
+        'Repeated punctuation',
+        `“${written}” — ${length} is not how ${c} is normally used.`,
+        at[i],
+        at[j],
+        [],
+        [{ label: `Use a single “${c}”`, start: at[i], end: at[j], text: c }],
+      ));
+    }
+    i = j;
+  }
+}
+
+/** Checks every line for punctuation spacing and repetition mistakes. */
+function punctuationIssues(lines) {
+  const issues = [];
+  for (const line of lines) {
+    if (issues.length >= MAX_SEQUENCE_ISSUES) return issues;
+    const chars = Array.from(line.text);
+    const at = punctuationOffsets(line, chars);
+    spacingIssues(chars, at, issues);
+    repeatedMarkIssues(chars, at, issues);
+  }
+  return issues;
+}
+
+/* ---------------------------------------------------------------------------
+   Spelling — the same checks as engine/src/spelling.rs: a doubled word, and
+   the same word spelled two different ways across the document (British vs
+   American). Neither needs a dictionary — see the Rust file's doc comment
+   for why the "-ise"/"-ize" suffix rule is safe without one.
+   ------------------------------------------------------------------------- */
+
+/** Every run of letters in `chars`, lowercased, with its own position. */
+function wordsWithPositions(chars) {
+  const out = [];
+  let i = 0;
+  while (i < chars.length) {
+    if (!/\p{Alphabetic}/u.test(chars[i])) {
+      i += 1;
+      continue;
+    }
+    const start = i;
+    while (i < chars.length && /\p{Alphabetic}/u.test(chars[i])) i += 1;
+    out.push([chars.slice(start, i).join('').toLowerCase(), start, i]);
+  }
+  return out;
+}
+
+function repeatedWordIssues(chars, at, words, issues) {
+  for (let k = 0; k + 1 < words.length; k += 1) {
+    if (issues.length >= MAX_SEQUENCE_ISSUES) return;
+    const [first, , firstEnd] = words[k];
+    const [second, secondStart, secondEnd] = words[k + 1];
+    if (first !== second) continue;
+    if (!chars.slice(firstEnd, secondStart).every((c) => /\s/.test(c))) continue;
+    // Removes the gap and the repeat together ("the| the| fix" -> "the|
+    // fix"), not just the second word alone, which would leave the space on
+    // either side of it behind as a new, doubled space.
+    issues.push(mechanicalIssue(
+      `spelling-repeat-${at[secondStart]}`,
+      'Repeated word',
+      `“${second}” is written twice in a row here.`,
+      at[secondStart],
+      at[secondEnd],
+      [],
+      [{ label: 'Remove the repeat', start: at[firstEnd], end: at[secondEnd], text: '' }],
+    ));
+  }
+}
+
+/** Pairs that are not a simple suffix swap: American, then British. */
+const VARIANT_PAIRS = [
+  ['color', 'colour'], ['colors', 'colours'], ['colored', 'coloured'], ['coloring', 'colouring'],
+  ['favor', 'favour'], ['favors', 'favours'], ['favorite', 'favourite'], ['favorites', 'favourites'],
+  ['favorable', 'favourable'], ['favorably', 'favourably'],
+  ['honor', 'honour'], ['honors', 'honours'], ['honorable', 'honourable'], ['honorary', 'honourary'],
+  ['behavior', 'behaviour'], ['behaviors', 'behaviours'], ['behavioral', 'behavioural'],
+  ['neighbor', 'neighbour'], ['neighbors', 'neighbours'], ['neighborhood', 'neighbourhood'], ['neighboring', 'neighbouring'],
+  ['labor', 'labour'], ['labors', 'labours'], ['labored', 'laboured'], ['laboring', 'labouring'],
+  ['flavor', 'flavour'], ['flavors', 'flavours'], ['flavored', 'flavoured'],
+  ['humor', 'humour'], ['humored', 'humoured'], ['humorous', 'humourous'],
+  ['rumor', 'rumour'], ['rumors', 'rumours'], ['rumored', 'rumoured'],
+  ['vapor', 'vapour'], ['armor', 'armour'], ['armored', 'armoured'],
+  ['harbor', 'harbour'], ['harbors', 'harbours'],
+  ['endeavor', 'endeavour'], ['endeavors', 'endeavours'], ['endeavored', 'endeavoured'],
+  ['splendor', 'splendour'], ['valor', 'valour'], ['savior', 'saviour'], ['saviors', 'saviours'],
+  ['ardor', 'ardour'], ['candor', 'candour'], ['clamor', 'clamour'],
+  ['demeanor', 'demeanour'], ['fervor', 'fervour'], ['glamor', 'glamour'],
+  ['odor', 'odour'], ['odors', 'odours'], ['parlor', 'parlour'], ['parlors', 'parlours'],
+  ['rigor', 'rigour'], ['rigors', 'rigours'], ['succor', 'succour'],
+  ['tumor', 'tumour'], ['tumors', 'tumours'], ['vigor', 'vigour'],
+  ['center', 'centre'], ['centers', 'centres'], ['centered', 'centred'], ['centering', 'centring'],
+  ['theater', 'theatre'], ['theaters', 'theatres'],
+  ['liter', 'litre'], ['liters', 'litres'],
+  ['fiber', 'fibre'], ['fibers', 'fibres'],
+  ['caliber', 'calibre'], ['somber', 'sombre'], ['luster', 'lustre'],
+  ['specter', 'spectre'], ['specters', 'spectres'],
+  ['defense', 'defence'], ['defenses', 'defences'],
+  ['offense', 'offence'], ['offenses', 'offences'],
+  ['pretense', 'pretence'], ['pretenses', 'pretences'],
+  ['license', 'licence'], ['licenses', 'licences'],
+  ['practice', 'practise'],
+  ['traveled', 'travelled'], ['traveling', 'travelling'], ['traveler', 'traveller'], ['travelers', 'travellers'],
+  ['canceled', 'cancelled'], ['canceling', 'cancelling'],
+  ['modeled', 'modelled'], ['modeling', 'modelling'], ['modeler', 'modeller'],
+  ['labeled', 'labelled'], ['labeling', 'labelling'],
+  ['fueled', 'fuelled'], ['fueling', 'fuelling'],
+  ['signaled', 'signalled'], ['signaling', 'signalling'],
+  ['leveled', 'levelled'], ['leveling', 'levelling'],
+  ['marveled', 'marvelled'], ['marveling', 'marvelling'],
+  ['counseled', 'counselled'], ['counseling', 'counselling'],
+  ['fulfill', 'fulfil'], ['fulfills', 'fulfils'], ['fulfillment', 'fulfilment'],
+  ['enroll', 'enrol'], ['enrolls', 'enrols'], ['enrollment', 'enrolment'], ['enrollments', 'enrolments'],
+  ['gray', 'grey'], ['grays', 'greys'], ['grayed', 'greyed'],
+  ['catalog', 'catalogue'], ['catalogs', 'catalogues'], ['cataloged', 'catalogued'],
+  ['dialog', 'dialogue'], ['dialogs', 'dialogues'],
+  ['analog', 'analogue'], ['analogs', 'analogues'],
+  ['mold', 'mould'], ['molds', 'moulds'], ['molded', 'moulded'], ['molding', 'moulding'],
+  ['plow', 'plough'], ['plows', 'ploughs'], ['plowed', 'ploughed'],
+  ['skillful', 'skilful'], ['skillfully', 'skilfully'],
+  ['aluminum', 'aluminium'],
+  ['judgment', 'judgement'], ['judgments', 'judgements'],
+  ['artifact', 'artefact'], ['artifacts', 'artefacts'],
+];
+
+/**
+ * British suffix, its American counterpart — covers the whole "-ise"/"-ize"
+ * verb family without listing every one by hand.
+ */
+const SUFFIX_PAIRS = [
+  ['isation', 'ization'], ['isations', 'izations'],
+  ['ising', 'izing'], ['ised', 'ized'],
+  ['iser', 'izer'], ['isers', 'izers'],
+  ['ise', 'ize'],
+];
+
+/** The American spelling this word would have if it is really a British "-ise" word — a harmless guess, see the module comment. */
+function americanGuess(word) {
+  for (const [british, american] of SUFFIX_PAIRS) {
+    if (word.endsWith(british)) {
+      const stem = word.slice(0, word.length - british.length);
+      if (stem) return stem + american;
+    }
+  }
+  return null;
+}
+
+function spellingConsistencyIssues(index, issues) {
+  const reported = new Set();
+  const flag = (a, b) => {
+    if (issues.length >= MAX_SEQUENCE_ISSUES || reported.has(a)) return;
+    const first = index.get(a);
+    const second = index.get(b);
+    if (!first || !second) return;
+    const [earlier, later] = first[0] <= second[0] ? [first, second] : [second, first];
+    reported.add(a);
+    // Only fixes the occurrence flagged here, to match the one it was
+    // compared against — not every occurrence of either spelling in the
+    // document, which this check never counted in the first place (it stops
+    // looking once one of each spelling has been found).
+    issues.push(mechanicalIssue(
+      `spelling-consistency-${later[0]}`,
+      'Spelling is inconsistent',
+      `This document uses both “${earlier[2]}” and “${later[2]}” — pick one spelling and use it throughout.`,
+      later[0],
+      later[1],
+      [{ start: earlier[0], end: earlier[1] }],
+      [{ label: `Use “${earlier[2]}” here too`, start: later[0], end: later[1], text: earlier[2] }],
+    ));
+  };
+
+  for (const [american, british] of VARIANT_PAIRS) flag(american, british);
+  for (const word of [...index.keys()].sort()) {
+    const guess = americanGuess(word);
+    if (guess && index.has(guess)) flag(word, guess);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Check 3 — a word that is not in the dictionary. WORDLIST_WORDS (370k+
+   words) decides whether a word is recognised at all; DICTIONARY_WORDS (the
+   ten thousand most common, ranked) only decides which correct spelling is
+   suggested first. See spelling.rs's doc comment for the split, and why a
+   capitalized word is always left alone (almost always a name, a place or a
+   brand no general word list was ever going to know).
+   ------------------------------------------------------------------------- */
+
+const MIN_WORD_LEN = 3;
+const MAX_SUGGESTIONS = 3;
+const MAX_EDIT_DISTANCE = 2;
+
+/**
+ * Anything ranked at or above this is not a real frequency rank — it was
+ * added by buildEffectiveDictionary itself (from WORDLIST_WORDS, or a
+ * generated spelling variant) and never had a frequency to go on.
+ * `suggestions` uses this to keep its search to the ~10k words
+ * DICTIONARY_WORDS actually ranks, instead of every word
+ * buildEffectiveDictionary recognises: scanning all 380k+ of those, running
+ * the full edit-distance check against each, is the difference between a
+ * check that answers in milliseconds and one that takes seconds per
+ * misspelling — a difference this check found the hard way once already
+ * (see spelling.rs). The trade is the same one already made for recognising
+ * a word at all: a correction that exists only among the rarer words goes
+ * unsuggested. For how often anyone types a typo of an uncommon word, that
+ * trade is worth keeping the check fast for every real one.
+ */
+const UNRANKED = 1_000_000;
+
+/**
+ * The word list this check treats as "a real word" — the frequency list,
+ * the full word list, plus every British/American spelling either half of
+ * VARIANT_PAIRS or the "-ise"/"-ize" rule can reach from either, so a lone
+ * "colour" or "organise" is never flagged here even though "colour" is not
+ * itself in the frequency list.
+ *
+ * Maps each word to a rank: its position in DICTIONARY_WORDS when it has
+ * one, which is itself ordered by how common the word actually is. A word
+ * only WORDLIST_WORDS knows, or one this check had to add on its own (a
+ * British spelling, a generated "-ise" form), has no real frequency to go
+ * on, so it gets a rank of UNRANKED or higher — see UNRANKED for why that
+ * value in particular, and why `suggestions` treats it as a cutoff rather
+ * than just a tie-breaker.
+ */
+function buildEffectiveDictionary() {
+  const words = new Map(DICTIONARY_WORDS.map((word, rank) => [word, rank]));
+  const lowPriority = words.size + UNRANKED;
+  for (const word of WORDLIST_WORDS) {
+    if (!words.has(word)) words.set(word, lowPriority);
+  }
+  for (const [american, british] of VARIANT_PAIRS) {
+    if (!words.has(american)) words.set(american, lowPriority);
+    if (!words.has(british)) words.set(british, lowPriority);
+  }
+  const base = [...words.keys()];
+  for (const word of base) {
+    for (const [britishSuffix, americanSuffix] of SUFFIX_PAIRS) {
+      if (word.endsWith(americanSuffix)) {
+        const stem = word.slice(0, word.length - americanSuffix.length);
+        const generated = stem + britishSuffix;
+        if (stem && !words.has(generated)) words.set(generated, lowPriority);
+      }
+    }
+  }
+  return words;
+}
+
+let effectiveDictionary = null;
+const getEffectiveDictionary = () => (effectiveDictionary ??= buildEffectiveDictionary());
+
+/**
+ * Damerau-Levenshtein distance: how many single-letter edits — insert,
+ * delete, substitute, or swap two neighbouring letters — turn `a` into `b`.
+ * The last one is what plain Levenshtein distance does not have, and it is
+ * the difference that matters here: "recieve" is one swap from "receive"
+ * (distance 1) but two substitutions from "believe" or "recipe" (distance
+ * 2) — without counting a swap as one move, all three tie, and the real
+ * correction is no more likely to be suggested than either of the others.
+ * This is the standard fix real spell-checkers (Hunspell among them) use
+ * for exactly this reason: a transposed pair is the most common single typo
+ * there is.
+ */
+function editDistance(a, b) {
+  const d = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i += 1) d[i][0] = i;
+  for (let j = 0; j <= b.length; j += 1) d[0][j] = j;
+  for (let i = 1; i <= a.length; i += 1) {
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      let best = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) best = Math.min(best, d[i - 2][j - 2] + 1);
+      d[i][j] = best;
+    }
+  }
+  return d[a.length][b.length];
+}
+
+/**
+ * The closest real words to `word`, nearest first — what the editor offers
+ * as one-click fixes. Ties in distance go to whichever candidate is the
+ * more common word, then alphabetically, so the result is always the same
+ * for the same input.
+ */
+function suggestions(word, dictionary) {
+  const scored = [];
+  for (const [candidate, rank] of dictionary) {
+    if (rank >= UNRANKED) continue;
+    if (Math.abs(candidate.length - word.length) > MAX_EDIT_DISTANCE) continue;
+    const distance = editDistance(word, candidate);
+    if (distance >= 1 && distance <= MAX_EDIT_DISTANCE) scored.push([distance, rank, candidate]);
+  }
+  scored.sort((a, b) => (a[0] - b[0]) || (a[1] - b[1]) || a[2].localeCompare(b[2]));
+  return scored.slice(0, MAX_SUGGESTIONS).map(([, , w]) => w);
+}
+
+function misspellingIssues(chars, at, words, dictionary, issues) {
+  for (const [word, start, end] of words) {
+    if (issues.length >= MAX_SEQUENCE_ISSUES) return;
+    if (word.length < MIN_WORD_LEN || /\p{Lu}/u.test(chars[start]) || dictionary.has(word)) continue;
+    const fixes = suggestions(word, dictionary);
+    const message = fixes.length
+      ? `“${word}” is not a word this checker recognises — did you mean ${fixes.map((f) => `“${f}”`).join(' or ')}?`
+      : `“${word}” is not a word this checker recognises.`;
+    const found = mechanicalIssue(`spelling-unknown-${at[start]}`, 'Misspelled word', message, at[start], at[end]);
+    found.repairs = fixes.map((fix) => ({ label: `Use “${fix}”`, start: at[start], end: at[end], text: fix }));
+    issues.push(found);
+  }
+}
+
+/** Checks every line for a doubled word and an unrecognised one, then the whole document for a word spelled two different ways. */
+function spellingIssues(lines) {
+  const issues = [];
+  const index = new Map();
+  const dictionary = getEffectiveDictionary();
+  for (const line of lines) {
+    if (issues.length >= MAX_SEQUENCE_ISSUES) return issues;
+    const chars = Array.from(line.text);
+    const at = punctuationOffsets(line, chars);
+    const words = wordsWithPositions(chars);
+    repeatedWordIssues(chars, at, words, issues);
+    misspellingIssues(chars, at, words, dictionary, issues);
+    for (const [word, start, end] of words) {
+      if (!index.has(word)) index.set(word, [at[start], at[end], chars.slice(start, end).join('')]);
+    }
+  }
+  spellingConsistencyIssues(index, issues);
+  return issues;
+}
+
 const label = (sentence) => `Sentence ${sentence.index + 1}`;
 const topic = (shared) => shared.slice(0, 2).join(' / ');
 
@@ -1696,6 +2124,8 @@ export function analyze(text, outline = '', kind = 'Other', style = '') {
   const chosen = parseStyle(style);
   if (chosen) issues.push(...citationStyleIssues(chosen, text.length, headings, allLines));
   issues.push(...identifierIssues(allLines));
+  issues.push(...punctuationIssues(allLines));
+  issues.push(...spellingIssues(allLines));
 
   return {
     version: 'javascript',
@@ -1705,10 +2135,10 @@ export function analyze(text, outline = '', kind = 'Other', style = '') {
       words: wordsOf(text).length,
       numbers: prepared.reduce((total, item) => total + item.numbers.length, 0),
       headings: headings.length,
-      // 18 rules: 3 about the sentences, 6 about the structure, 1 about
-      // numbering, 3 about references, 3 about citation style and 2 about
-      // identifiers (DOI and ISBN).
-      checks: 18,
+      // 25 rules: 3 about the sentences, 6 about the structure, 1 about
+      // numbering, 3 about references, 3 about citation style, 2 about
+      // identifiers (DOI and ISBN), 4 about punctuation and 3 about spelling.
+      checks: 25,
     },
   };
 }

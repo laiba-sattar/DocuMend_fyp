@@ -128,6 +128,48 @@ export const CHECKS = [
     title: 'DOI is not valid',
     blurb: 'A DOI that doesn’t match the standard shape: "10.", a registrant code, a slash, then the publisher’s suffix.',
   },
+  {
+    id: 'extra-space',
+    kind: 'structure',
+    title: 'Extra space',
+    blurb: 'Two or more spaces in a row between words.',
+  },
+  {
+    id: 'space-before-punctuation',
+    kind: 'structure',
+    title: 'Space before punctuation',
+    blurb: 'A stray space before a full stop, comma or similar mark.',
+  },
+  {
+    id: 'missing-space-after-punctuation',
+    kind: 'structure',
+    title: 'Missing space after punctuation',
+    blurb: 'A comma, semicolon, colon, "!" or "?" running straight into the next word.',
+  },
+  {
+    id: 'repeated-punctuation',
+    kind: 'structure',
+    title: 'Repeated punctuation',
+    blurb: 'A mark repeated past what is ever correct — "!!", ",," or a run of dots that is not a proper ellipsis.',
+  },
+  {
+    id: 'repeated-word',
+    kind: 'structure',
+    title: 'Repeated word',
+    blurb: 'The same word written twice in a row, like "the the".',
+  },
+  {
+    id: 'spelling-inconsistent',
+    kind: 'structure',
+    title: 'Spelling is inconsistent',
+    blurb: 'The document spells the same word two different ways — "colour" and "color", "organise" and "organize".',
+  },
+  {
+    id: 'misspelled-word',
+    kind: 'structure',
+    title: 'Misspelled word',
+    blurb: 'A lower-case word not in the checker’s ten-thousand-word list, with up to three close corrections to choose from. Capitalized words are always left alone, since they are almost always a name.',
+  },
 ];
 
 /** Which rule raised this issue, or null when it is one we do not know. */
