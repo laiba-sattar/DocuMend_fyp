@@ -34,6 +34,11 @@ export default defineConfig({
         // Everything the app is made of, including the Rust engine (.wasm),
         // is stored on first visit, so the editor and its checks work offline.
         globPatterns: ['**/*.{js,css,html,svg,png,wasm,webmanifest,woff2}'],
+        // Default is 2 MiB. The spell-check word list (engine/src/wordlist.txt,
+        // ~370k words so ordinary words like "comma" aren't flagged as typos)
+        // pushes both the worker bundle and the .wasm past that on its own —
+        // raised with room to spare rather than to the exact current size.
+        maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
         // Any page address (/editor, /documents…) is the same single-page app.
         navigateFallback: '/index.html',
         cleanupOutdatedCaches: true,

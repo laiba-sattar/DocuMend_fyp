@@ -20,8 +20,10 @@ pub mod identifiers;
 pub mod json;
 pub mod numbering;
 pub mod numbers;
+pub mod punctuation;
 pub mod references;
 pub mod rules;
+pub mod spelling;
 pub mod structure;
 pub mod text;
 
@@ -73,6 +75,8 @@ pub fn analyze(document: &str, outline: &str, kind: &str, style: &str) -> Report
         issues.extend(citation_style::run(style, document_len, &headings, &lines));
     }
     issues.extend(identifiers::run(&lines));
+    issues.extend(punctuation::run(&lines));
+    issues.extend(spelling::run(&lines));
 
     Report {
         stats: Stats {
@@ -80,10 +84,11 @@ pub fn analyze(document: &str, outline: &str, kind: &str, style: &str) -> Report
             words: text::words(document).len(),
             numbers,
             headings: headings.len(),
-            // 18 rules: 3 about the sentences, 6 about the structure, 1 about
-            // numbering, 3 about references, 3 about citation style and 2
-            // about identifiers (DOI and ISBN).
-            checks: 18,
+            // 25 rules: 3 about the sentences, 6 about the structure, 1 about
+            // numbering, 3 about references, 3 about citation style, 2 about
+            // identifiers (DOI and ISBN), 4 about punctuation and 3 about
+            // spelling.
+            checks: 25,
         },
         issues,
     }
@@ -215,7 +220,7 @@ mod tests {
         assert_eq!(report.stats.sentences, 2);
         assert_eq!(report.stats.numbers, 2);
         assert_eq!(report.stats.headings, 0);
-        assert_eq!(report.stats.checks, 18);
+        assert_eq!(report.stats.checks, 25);
     }
 
     #[test]
