@@ -1538,6 +1538,82 @@
 .dash-dark .editor-insight-panel { background: #f3eee4; }
 .dash-dark .editor-review-footer { color: #abc0af; }
 
+/* ==========================================================================
+   Issue hover card — the popover shown over a highlighted word, so a fix
+   (a misspelling's suggested corrections, a mismatched number's repair…)
+   can be applied right there instead of hunting for the matching card in
+   the review panel.
+   ========================================================================== */
+
+.editor-hover-card {
+  position: fixed;
+  z-index: 60;
+  width: 280px;
+  max-width: calc(100vw - 16px);
+  padding: 10px;
+  border: 1px solid #ead8ae;
+  border-left: 3px solid #c99a36;
+  border-radius: 9px;
+  background: #fffaf1;
+  color: #3e554b;
+  box-shadow: 0 10px 28px rgba(59, 55, 42, .18);
+  font-size: 11px;
+  animation: dash-soft .12s ease-out both;
+}
+.editor-hover-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-weight: 800;
+  font-size: 11px;
+  color: #9d7425;
+}
+.editor-hover-card-title { display: flex; align-items: center; gap: 5px; }
+.editor-hover-card-close {
+  border: 0;
+  background: transparent;
+  color: #a89a83;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+}
+.editor-hover-card-close:hover { background: #f0e6d2; }
+.editor-hover-card-message {
+  margin: 6px 0 8px;
+  color: #647168;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.editor-hover-card-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.editor-hover-card-fix {
+  border: 0;
+  border-radius: 6px;
+  padding: 5px 9px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #f8fff6;
+  background: #46a873;
+  cursor: pointer;
+}
+.editor-hover-card-fix:hover { filter: brightness(.96); }
+.editor-hover-card-ignore {
+  display: block;
+  margin: 8px 0 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #a89a83;
+  font-size: 10px;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.dash-dark .editor-hover-card { background: #f3eee4; }
+
+/* the highlighted marks themselves invite a hover */
+.editor-heatmap-mark { cursor: help; }
+
 .editor-ribbon-section {
   display: flex;
   flex-direction: column;

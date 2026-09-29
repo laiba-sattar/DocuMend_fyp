@@ -12,7 +12,10 @@
  *
  * Marks follow the text as the user types (their positions are mapped
  * through every edit). Clicking a mark that has an `id` calls the
- * `onHighlightClick(id, group)` option — the repair popup hooks in there.
+ * `onHighlightClick(id, group)` option. Hovering one calls
+ * `onHighlightHover(id, group, rect)` — `rect` is the hovered word's own
+ * bounding box, in viewport coordinates, for positioning a popover next to
+ * it; hovering away from every mark calls it with `null`.
  */
 import { Extension } from '@tiptap/core';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
@@ -28,7 +31,7 @@ export const DocumentHighlights = Extension.create({
   name: 'documendHighlights',
 
   addOptions() {
-    return { onHighlightClick: null };
+    return { onHighlightClick: null, onHighlightHover: null };
   },
 
   addCommands() {
@@ -68,7 +71,10 @@ export const DocumentHighlights = Extension.create({
                 .map((range) => Decoration.inline(
                   range.from,
                   range.to,
-                  { class: range.className || 'editor-find-match' },
+                  {
+                    class: range.className || 'editor-find-match',
+                    ...(range.id ? { 'data-highlight-id': range.id } : {}),
+                  },
                   { id: range.id ?? null, group: meta.group },
                 ));
               groups = { ...groups, [meta.group]: DecorationSet.create(tr.doc, decorations) };
@@ -86,6 +92,26 @@ export const DocumentHighlights = Extension.create({
             const hit = highlightsKey.getState(view.state).all.find(pos, pos).find((d) => d.spec.id);
             if (hit) onClick(hit.spec.id, hit.spec.group);
             return false; // still let the cursor move there
+          },
+          handleDOMEvents: {
+            mousemove(view, event) {
+              const onHover = extension.options.onHighlightHover;
+              if (!onHover) return false;
+              const marked = event.target.closest?.('[data-highlight-id]');
+              if (!marked) {
+                onHover(null);
+                return false;
+              }
+              const pos = view.posAtCoords({ left: event.clientX, top: event.clientY });
+              const hit = pos && highlightsKey.getState(view.state).all.find(pos.pos, pos.pos).find((d) => d.spec.id);
+              if (hit) onHover(hit.spec.id, hit.spec.group, marked.getBoundingClientRect());
+              else onHover(null);
+              return false;
+            },
+            mouseleave(view) {
+              extension.options.onHighlightHover?.(null);
+              return false;
+            },
           },
         },
       }),

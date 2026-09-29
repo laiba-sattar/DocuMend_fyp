@@ -7,7 +7,8 @@
  *
  *   const engine = useEngine(editor, { enabled: heatmapOn, docId: selectedId, kind: 'Thesis', style: 'APA' });
  *   engine.status     // 'starting' | 'ready' | 'off'
- *   engine.issues     // [{ id, kind, title, message, severity, location, repairs… }]
+ *   engine.issues     // [{ id, kind, title, message, severity, location, repairs… }] — for the review panel
+ *   engine.allIssues  // the same, plus a misspelled word — for the hover card, which needs every id
  *   engine.applyRepair(issue, repair)
  *   engine.goToIssue(issue)
  *   engine.ignoreIssue(issue)
@@ -145,13 +146,26 @@ export function useEngine(editor, { enabled = true, docId = null, kind = 'Other'
     [issues, dismissed, mutedChecks],
   );
 
+  /**
+   * A misspelled word behaves like it does in Word: a mark in the text, a fix
+   * on hover, never a card of its own — the review panel would otherwise list
+   * every typo in a long document one line at a time. It is still analysed,
+   * still highlighted, still fixable (see the highlight effect and the hover
+   * card below, which both read `openIssues`, not this) — only the panel and
+   * its counts leave it out.
+   */
+  const panelIssues = useMemo(
+    () => openIssues.filter((issue) => issue.title !== 'Misspelled word'),
+    [openIssues],
+  );
+
   const counts = useMemo(() => ({
-    total: openIssues.length,
-    contradiction: openIssues.filter((issue) => issue.kind === 'contradiction').length,
-    redundancy: openIssues.filter((issue) => issue.kind === 'redundancy').length,
-    structure: openIssues.filter((issue) => issue.kind === 'structure').length,
-    citation: openIssues.filter((issue) => issue.kind === 'citation').length,
-  }), [openIssues]);
+    total: panelIssues.length,
+    contradiction: panelIssues.filter((issue) => issue.kind === 'contradiction').length,
+    redundancy: panelIssues.filter((issue) => issue.kind === 'redundancy').length,
+    structure: panelIssues.filter((issue) => issue.kind === 'structure').length,
+    citation: panelIssues.filter((issue) => issue.kind === 'citation').length,
+  }), [panelIssues]);
 
   /** Turns an engine range into an editor range, using the analysed document. */
   const rangeOf = useCallback((start, end) => {
@@ -271,7 +285,8 @@ export function useEngine(editor, { enabled = true, docId = null, kind = 'Other'
     engineName,
     engineReason,
     analyzing,
-    issues: openIssues,
+    issues: panelIssues,
+    allIssues: openIssues, // for the hover card, which must still find a misspelled word by id
     counts,
     outline,
     stats,

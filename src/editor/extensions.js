@@ -17,7 +17,7 @@ import { Placeholder } from '@tiptap/extensions';
 import { DocumentHighlights } from './highlights';
 import { ParagraphFormat } from './paragraphFormat';
 
-export function buildExtensions({ onHighlightClick } = {}) {
+export function buildExtensions({ onHighlightClick, onHighlightHover } = {}) {
   return [
     StarterKit.configure({
       heading: { levels: [1, 2, 3] },
@@ -33,6 +33,6 @@ export function buildExtensions({ onHighlightClick } = {}) {
     TableKit.configure({ table: { resizable: false } }),
     Placeholder.configure({ placeholder: 'Start writing, or open a Word, text or Markdown file from the File menu…' }),
     ParagraphFormat, // indent, line spacing, borders, Title/Subtitle/No Spacing styles
-    DocumentHighlights.configure({ onHighlightClick }),
+    DocumentHighlights.configure({ onHighlightClick, onHighlightHover }),
   ];
 }

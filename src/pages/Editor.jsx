@@ -124,6 +124,7 @@ import { IMPORT_ACCEPT, IMPORT_EXTENSIONS, importFile } from '../editor/importer
 import { exportDocx, exportTxt, printDocument } from '../editor/exporters';
 import FileDialog from '../editor/FileDialog';
 import CitationDialog from '../editor/CitationDialog';
+import IssueHoverCard, { useIssueHover } from '../editor/IssueHoverCard';
 import HomeRibbon from '../editor/HomeRibbon';
 import { useEngine } from '../engine/useEngine';
 import { findReferenceRegion, formatEntryText, formatInText, listNameFor, nextIeeeNumber } from '../editor/citations';
@@ -236,6 +237,8 @@ function Editor() {
   const findQueryRef = useRef('');
   const editorRef = useRef(null); // the Tiptap editor instance, for callbacks
   const onEditorUpdateRef = useRef(() => {});
+  const issuesRef = useRef([]); // kept in sync with engine.issues below — see IssueHoverCard's doc comment for why
+  const hover = useIssueHover(issuesRef);
   const fileInputRef = useRef(null);
   const folderInputRef = useRef(null);
   const fileActionsRef = useRef({}); // the latest File-menu actions, for keyboard shortcuts
@@ -258,7 +261,7 @@ function Editor() {
 
   // One Tiptap editor for the page; documents are swapped into it with setContent.
   const editorOptions = useMemo(() => ({
-    extensions: buildExtensions(),
+    extensions: buildExtensions({ onHighlightHover: hover.handleHover }),
     editable: false, // becomes editable once a document is loaded
     editorProps: {
       attributes: { class: 'editor-prose', 'aria-label': 'Document editor', spellcheck: 'true' },
@@ -282,6 +285,9 @@ function Editor() {
     kind: documentKind,
     style: citationStyle,
   });
+  // The hover popover reads this ref rather than closing over `engine.issues`
+  // directly — see IssueHoverCard's doc comment for why.
+  useEffect(() => { issuesRef.current = engine.allIssues; }, [engine.allIssues]);
 
   // Which toolbar buttons should look pressed for the text under the cursor.
   const formats = useEditorState({
@@ -1630,6 +1636,13 @@ function Editor() {
       )}
 
       {toast && <div className="dash-toast" role="status">{toast}</div>}
+
+      <IssueHoverCard
+        hovered={hover.hovered}
+        close={hover.close}
+        onApply={(issue, repair) => { applyRepair(issue, repair); hover.close(); }}
+        onIgnore={(issue) => { ignoreIssue(issue); hover.close(); }}
+      />
     </div>
   );
 }
