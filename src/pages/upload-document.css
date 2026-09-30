@@ -1092,3 +1092,14 @@
     display: none;
   }
 }
+
+/* Said before the import rather than after: a PDF's shape has to be worked
+   out, so the reader is told while they are still choosing the file. */
+.upload-format-note {
+  max-width: 46ch;
+  margin: 12px auto 0;
+  font-size: 12px;
+  line-height: 1.55;
+  opacity: .7;
+  text-align: center;
+}

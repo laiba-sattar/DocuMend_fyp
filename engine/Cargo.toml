@@ -1,0 +1,20 @@
+[package]
+name = "documend-engine"
+version = "0.1.0"
+edition = "2021"
+description = "ODIE — DocuMend's offline document integrity engine (Rust, compiled to WebAssembly)"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# wasm-bindgen is only needed for the browser build, so `cargo test` on your
+# laptop compiles with no dependencies at all (fast, and it works offline).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+
+[profile.release]
+opt-level = "z"   # smallest .wasm file
+lto = true
+codegen-units = 1
+panic = "abort"

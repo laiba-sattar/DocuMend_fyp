@@ -142,6 +142,40 @@
   color: #f3eee3;
 }
 
+/* Folder browser: breadcrumb, header actions, folder cards. */
+.docs-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 14px; font-size: 12px; color: var(--dash-ink-soft); }
+.docs-crumbs button { border: 0; background: none; padding: 2px 4px; border-radius: 6px; color: var(--dash-ink-soft); font: 600 12px inherit; cursor: pointer; }
+.docs-crumbs button:hover { color: var(--dash-ink); background: var(--dash-raised); }
+.docs-crumb { display: inline-flex; align-items: center; gap: 4px; }
+.docs-crumb strong { color: var(--dash-ink); font-weight: 700; padding: 2px 4px; }
+
+.docs-title-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.docs-ghost-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  border: 1px solid var(--dash-line); border-radius: 12px; padding: 11px 16px;
+  background: var(--dash-card); color: var(--dash-ink); font: 600 12px inherit; cursor: pointer;
+  transition: background-color .18s ease, border-color .18s ease, color .18s ease;
+}
+.docs-ghost-btn:hover { background: var(--dash-raised); }
+.docs-ghost-btn.is-danger:hover { color: #b3402f; border-color: #b3402f; }
+
+.docs-section-title { margin: 6px 0 12px; font: 700 11px inherit; letter-spacing: .14em; text-transform: uppercase; color: var(--dash-ink-soft); }
+.docs-folder-grid { display: grid; gap: 12px; grid-template-columns: 1fr; margin-bottom: 26px; }
+.docs-folder-card {
+  display: flex; align-items: center; gap: 14px; width: 100%;
+  border: 1px solid var(--dash-line); border-radius: 16px; padding: 14px 16px;
+  background: var(--dash-card); color: var(--dash-ink); text-align: left; cursor: pointer;
+}
+.docs-folder-card:hover { background: var(--dash-raised); }
+.docs-folder-icon { flex: 0 0 auto; display: grid; place-items: center; width: 42px; height: 42px; border-radius: 12px; }
+.docs-folder-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.docs-folder-name { font: 700 14px inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.docs-folder-meta { font-size: 11px; color: var(--dash-ink-soft); }
+.docs-tag-folder { display: inline-flex; align-items: center; gap: 4px; }
+
+@media (min-width: 640px) { .docs-folder-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1024px) { .docs-folder-grid { grid-template-columns: repeat(3, 1fr); } }
+
 /* ==========================================================================
    Stat tiles
    ========================================================================== */
@@ -174,15 +208,79 @@
 
 /* The whole card is one button so the entire surface is clickable and
    keyboard-focusable, like the dashboard's rows. */
+/* The card is a container now, not a button: Copy and Delete live inside it,
+   and a button cannot contain a button. The whole reading area is still one
+   click, it just belongs to the inner button. */
 .docs-card {
+  position: relative;
   display: flex;
   flex-direction: column;
-  padding: 12px;
   border: 1px solid var(--dash-line);
   border-radius: 18px;
   background: var(--dash-card);
   text-align: left;
+}
+
+.docs-card-open {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  width: 100%;
+  padding: 12px;
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
+}
+.docs-card-open:focus-visible { outline: 2px solid var(--dash-sage, #6f9c85); outline-offset: -2px; }
+
+/* Out of the way until wanted. Always visible on touch, where there is no
+   hover to discover them with, and whenever one has keyboard focus. */
+.docs-card-actions {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity .15s ease;
+}
+.docs-card:hover .docs-card-actions,
+.docs-card:focus-within .docs-card-actions { opacity: 1; }
+
+@media (hover: none) {
+  .docs-card-actions { opacity: 1; }
+}
+
+.docs-card-action {
+  display: flex;
+  width: 30px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0, 0, 0, .08);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, .92);
+  color: #4d5a53;
+  cursor: pointer;
+  transition: background .12s ease, color .12s ease;
+}
+.docs-card-action:hover { background: #fff; color: #1f2a26; }
+.docs-card-action.is-danger:hover { background: #fdecea; color: #a4362f; border-color: #f0c9c3; }
+.docs-card-action:focus-visible { outline: 2px solid var(--dash-sage, #6f9c85); outline-offset: 2px; }
+
+.dash-dark .docs-card-action {
+  border-color: rgba(255, 255, 255, .12);
+  background: rgba(22, 30, 26, .92);
+  color: #c3d3ca;
+}
+.dash-dark .docs-card-action:hover { background: #1d2723; color: #e9eae6; }
+
+@media (prefers-reduced-motion: reduce) {
+  .docs-card-actions { transition: none; }
 }
 
 /* Tinted preview banner standing in for a page thumbnail. */
@@ -316,3 +414,132 @@
   .docs-new-btn:hover,
   .docs-tabs-avatar:hover { transform: none; }
 }
+
+/* ==========================================================================
+   Documents that live on another computer (section S5)
+
+   The account remembers every document's name and date; the words themselves
+   never leave the machine they were written on. A card like this is the
+   honest picture of that: recognisable, clearly not openable here.
+   ========================================================================== */
+
+.docs-card-elsewhere { cursor: default; }
+.docs-card-elsewhere .docs-preview { opacity: .62; }
+.docs-card-elsewhere .docs-card-title { color: inherit; opacity: .8; }
+.docs-card-elsewhere:hover .docs-preview { opacity: .78; }
+
+.docs-preview-badge {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 3px 9px 3px 7px;
+  background: rgba(255, 255, 255, .86);
+  color: #4d5a53;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.dash-dark .docs-preview-badge {
+  background: rgba(16, 28, 23, .82);
+  color: #c3d3ca;
+}
+
+/* Privacy mode hides the titles here too, the same way the dashboard does. */
+.dash-private .docs-card-title,
+.dash-private .docs-card-meta { filter: blur(4px); transition: filter .12s ease; }
+
+.dash-private .docs-card:hover .docs-card-title,
+.dash-private .docs-card:hover .docs-card-meta,
+.dash-private .docs-card:focus-visible .docs-card-title,
+.dash-private .docs-card:focus-visible .docs-card-meta { filter: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-private .docs-card-title,
+  .dash-private .docs-card-meta { transition: none; }
+}
+
+/* ==========================================================================
+   The tab strip
+
+   Home / Recent / Insert, plus a quiet line saying what the tab is showing —
+   so "Recent" does not leave the reader guessing how recent it means.
+   ========================================================================== */
+
+.docs-tab-note {
+  margin: 0;
+  color: var(--dash-ink-soft);
+  font-size: 12px;
+  letter-spacing: .01em;
+}
+
+@media (max-width: 640px) {
+  .docs-tab-note { display: none; }
+}
+
+/* ==========================================================================
+   Finished documents
+
+   A document could never be finished before: `status` was written once as
+   'draft' and nothing in the app could write it again. Now that it can, a
+   finished document says so on its card, and the tick that sets it stays
+   visible rather than fading with the hover actions — it is a state, not a
+   command you have to go looking for.
+   ========================================================================== */
+
+.docs-preview-done {
+  background: rgba(33, 72, 59, .92);
+  color: #eaf3ec;
+}
+
+.dash-dark .docs-preview-done {
+  background: rgba(124, 170, 145, .22);
+  color: #cfe6d8;
+}
+
+.docs-card-action.is-done {
+  border-color: rgba(33, 72, 59, .4);
+  background: rgba(33, 72, 59, .1);
+  color: #21483b;
+}
+
+.docs-card-action.is-done:hover {
+  background: rgba(33, 72, 59, .18);
+}
+
+/* A card whose tick is on keeps it on screen even when the card is not
+   hovered, so the library reads at a glance. */
+.docs-card:not(:hover):not(:focus-within) .docs-card-actions:has(.is-done) { opacity: 1; }
+.docs-card:not(:hover):not(:focus-within) .docs-card-actions:has(.is-done) .docs-card-action:not(.is-done) { opacity: 0; }
+
+.dash-dark .docs-card-action.is-done {
+  border-color: rgba(124, 170, 145, .45);
+  background: rgba(124, 170, 145, .16);
+  color: #cfe6d8;
+}
+
+/* ==========================================================================
+   What the engine found, on the card
+
+   Shown only for documents the engine has actually read — a document nobody
+   has opened is not a document with no problems, and the card stays quiet
+   rather than guessing.
+   ========================================================================== */
+
+.docs-card-issues {
+  color: #c86f52;
+  font-weight: 700;
+}
+
+.docs-card-clear {
+  color: #6f9c85;
+  font-weight: 700;
+}
+
+.dash-dark .docs-card-issues { color: #e39679; }
+.dash-dark .docs-card-clear { color: #9ec9b1; }

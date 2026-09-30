@@ -2,7 +2,7 @@
  * WorkspaceChrome — the shell shared by every signed-in page.
  *
  * The dashboard and My Documents pages wear the same frame: dark sidebar,
- * mobile top bar + drawer, the search/notifications/profile header, and the
+ * mobile top bar + drawer, the notifications/profile header, and the
  * name/logout dialog. This module owns that frame so the pages only ship
  * their own content; add a nav destination here once and every page gets it.
  *
@@ -11,29 +11,54 @@
  *   Sidebar         — fixed desktop rail (collapsible)
  *   MobileTopbar    — sticky bar shown under 768px
  *   MobileDrawer    — slide-in nav for the top bar's menu button
- *   WorkspaceHeader — saved indicator + workspace search + bell + profile
+ *   WorkspaceHeader — notification switch + profile chip
  *   WorkspaceModal  — one dialog for naming documents/folders and logout
  *
  * Styling lives in workspace-chrome.css (imported here, so any page using
  * these components gets the shell styles for free). Page-specific styles
  * stay in each page's own stylesheet.
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useAuth } from './AuthContext';
+import { navigate, usePathname } from '../router';
 import './workspace-chrome.css';
 import {
   Bell,
-  ChevronDown,
+  BellOff,
+  ChevronRight,
   LogOut,
   Menu,
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
-  Search,
   Sun,
   X,
 } from 'lucide-react';
 import { BrandMark } from './BrandMark';
-import { navPrimary, navWorkspace } from './workspace-nav';
+import { navPrimary, navWorkspace, workspaceRoutes } from './workspace-nav';
+
+/**
+ * Route → the name shown in the header. Built from the same nav table the
+ * sidebar uses, so a destination added there is named here too; the extras
+ * below are the pages that have no sidebar entry of their own.
+ */
+const PAGE_NAMES = {
+  ...Object.fromEntries(Object.entries(workspaceRoutes).map(([label, route]) => [route, label])),
+  '/documents': 'My documents',
+  '/my-documents': 'My documents',
+  '/create-document': 'New document',
+  '/createdocument': 'New document',
+  '/create-folder': 'New folder',
+  '/createfolder': 'New folder',
+  '/upload': 'Upload',
+  '/upload-document': 'Upload',
+  '/edit': 'Choose a document',
+  '/select-document': 'Choose a document',
+  '/version-history': 'Version history',
+  '/set-password': 'Your password',
+  '/help-and-guide': 'Help and guide',
+  '/subscription': 'Subscription',
+};
 
 /* ==========================================================================
    Pieces
@@ -201,46 +226,149 @@ export function MobileDrawer({ open, onClose, activeNav, onNavigate, onPrivacyTo
 }
 
 /**
- * Top bar of the main column: saved indicator, workspace-wide search, the
- * notification bell, and the profile chip. `onAnnounce` receives the toast
- * text for the two placeholder actions.
+ * Top bar of the main column: the notification switch and the profile chip.
+ *
+ * Two things used to live here and no longer do.
+ *
+ * The "All changes saved" badge was painted on: it said the same thing whether
+ * or not anything had been saved, and the editor already reports saving where
+ * it actually matters.
+ *
+ * The "Search your workspace" box has gone too. My documents has its own
+ * search, right above the documents it searches, which is where a reader looks
+ * for it; a second box in the chrome only raised the question of which one
+ * searched what. Pages may still pass `search` props — they are ignored.
  */
-export function WorkspaceHeader({ search, onSearchChange, onAnnounce }) {
+export function WorkspaceHeader({ onAnnounce }) {
+  const pathname = usePathname();
+  const here = PAGE_NAMES[pathname?.toLowerCase().replace(/\/$/, '')] ?? 'Workspace';
+
   return (
     <header className="dash-header dash-soft">
-      <div className="dash-saved"><span className="dash-dot" /> All changes saved</div>
-
-      <label className="dash-search">
-        <span className="dash-sr">Search documents</span>
-        <Search size={16} />
-        <input
-          type="search"
-          value={search}
-          onChange={(event) => onSearchChange(event.target.value)}
-          placeholder="Search your workspace"
-        />
-        {search && (
-          <button type="button" onClick={() => onSearchChange('')} className="dash-search-clear" aria-label="Clear search">
-            <X size={14} />
-          </button>
-        )}
-      </label>
+      {/* The left of the bar used to hold a search box, and before that a badge
+          that always said the same thing. It now says where you are, which is
+          the one thing a top bar is genuinely good at. */}
+      <nav className="dash-header-where" aria-label="You are here">
+        <button type="button" onClick={() => navigate('/dashboard')} className="dash-crumb-root">
+          DocuMend
+        </button>
+        <ChevronRight size={13} aria-hidden="true" />
+        <span className="dash-crumb-here" aria-current="page">{here}</span>
+      </nav>
 
       <div className="dash-header-actions">
-        <button type="button" onClick={() => onAnnounce('You are all caught up')} className="dash-icon-btn" aria-label="Notifications">
-          <Bell size={17} strokeWidth={1.8} /><span className="dash-pip" />
-        </button>
+        <NotificationToggle onAnnounce={onAnnounce} />
         <span className="dash-divider" />
-        <button type="button" onClick={() => onAnnounce('Profile menu is ready')} className="dash-profile">
-          <span className="dash-avatar">MH</span>
-          <span className="dash-profile-text">
-            <span className="dash-profile-name">Mahnoor</span>
-            <span className="dash-profile-role">Personal workspace</span>
-          </span>
-          <ChevronDown size={14} />
-        </button>
+        <ProfileButton />
       </div>
     </header>
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   The notification switch
+   ------------------------------------------------------------------------- */
+
+const NOTIFY_KEY = 'documend.notifications';
+
+const readChoice = () => {
+  try { return window.localStorage.getItem(NOTIFY_KEY) === 'on'; } catch { return false; }
+};
+
+/**
+ * One button, two states: notifications on, notifications off.
+ *
+ * The bell used to be decorative — a click said "You are all caught up" and a
+ * red dot sat there for ever. It is now a real switch over the browser's own
+ * Notification permission.
+ *
+ * Two things a browser insists on, and this respects both:
+ *   · permission can only be asked for from a real click, so the request
+ *     happens here and nowhere else;
+ *   · permission cannot be taken back by a page. So "off" is remembered by us
+ *     instead — DocuMend stays quiet even though the browser would allow it.
+ * If the reader has blocked notifications in their browser settings, the
+ * button says so rather than pretending to switch on.
+ */
+function NotificationToggle({ onAnnounce }) {
+  const supported = typeof window !== 'undefined' && 'Notification' in window;
+  const [on, setOn] = useState(() => supported && readChoice() && Notification.permission === 'granted');
+
+  const blocked = supported && Notification.permission === 'denied';
+
+  const toggle = async () => {
+    if (!supported) return onAnnounce('This browser cannot show notifications.');
+
+    if (on) {
+      try { window.localStorage.setItem(NOTIFY_KEY, 'off'); } catch { /* private window */ }
+      setOn(false);
+      return onAnnounce('Notifications are off. DocuMend will stay quiet.');
+    }
+
+    if (blocked) {
+      return onAnnounce('Your browser is blocking notifications for this site. Allow them in the padlock menu beside the address bar.');
+    }
+
+    const permission = Notification.permission === 'granted'
+      ? 'granted'
+      : await Notification.requestPermission();
+
+    if (permission !== 'granted') {
+      return onAnnounce('Notifications stay off.');
+    }
+    try { window.localStorage.setItem(NOTIFY_KEY, 'on'); } catch { /* private window */ }
+    setOn(true);
+    onAnnounce('Notifications are on. DocuMend will tell you when a scan finishes.');
+  };
+
+  const label = on ? 'Turn notifications off' : 'Turn notifications on';
+
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      className={`dash-icon-btn dash-bell ${on ? 'is-on' : ''}`}
+      aria-label={label}
+      aria-pressed={on}
+      title={blocked ? 'Your browser is blocking notifications for this site' : label}
+    >
+      {on ? <Bell size={17} strokeWidth={1.8} /> : <BellOff size={17} strokeWidth={1.8} />}
+      {on && <span className="dash-pip" />}
+    </button>
+  );
+}
+
+/**
+ * The signed-in user in the header: their initials, their first name (S5).
+ * Before anyone signs in it simply says "You", so the header never looks broken.
+ */
+function ProfileButton() {
+  const { user } = useAuth();
+  const name = user?.name?.trim() || 'You';
+  const initials = name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('') || 'Y';
+
+  return (
+    // It used to raise "Profile menu is ready" and open nothing at all. There
+    // is no menu; there is a Settings page, and that is where a name and a
+    // plan belong. So the chip goes there — and the arrow points right rather
+    // than down, because a chevron pointing down promises a dropdown.
+    <button
+      type="button"
+      onClick={() => navigate('/settings')}
+      className="dash-profile"
+      title="Open your settings"
+    >
+      <span className="dash-avatar">{initials}</span>
+      <span className="dash-profile-text">
+        <span className="dash-profile-name">{name.split(/\s+/)[0]}</span>
+        <span className="dash-profile-role">{user ? `${user.tier[0]}${user.tier.slice(1).toLowerCase()} plan` : 'Personal workspace'}</span>
+      </span>
+      <ChevronRight size={14} aria-hidden="true" />
+    </button>
   );
 }
 
@@ -254,10 +382,46 @@ export function WorkspaceHeader({ search, onSearchChange, onAnnounce }) {
  */
 export function WorkspaceModal({ mode, initialValue, onClose, onSubmit, onLogout }) {
   const [value, setValue] = useState(initialValue);
+  const { signOut } = useAuth();
+  const dialogRef = useRef(null);
+  const isLogout = mode === 'logout';
+
+  // Escape closes it (the same pattern as UploadDocument.jsx's dialog), and
+  // Tab/Shift+Tab stay inside it rather than escaping to the page behind.
+  useEffect(() => {
+    if (!mode) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = dialogRef.current?.querySelectorAll(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable || focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [mode, onClose]);
+
+  // The name/folder form moves focus in with the input's own `autoFocus`;
+  // logout mode has no input, so without this nothing would receive focus.
+  useEffect(() => {
+    if (isLogout) dialogRef.current?.focus();
+  }, [isLogout]);
 
   if (!mode) return null;
 
-  const isLogout = mode === 'logout';
   const isFolder = mode === 'folder';
   const title = isLogout
     ? 'Take a quiet exit?'
@@ -267,7 +431,9 @@ export function WorkspaceModal({ mode, initialValue, onClose, onSubmit, onLogout
 
   const submit = (event) => {
     event.preventDefault();
-    if (isLogout) onLogout();
+    // Really sign out — the refresh token is revoked on the server too —
+    // and then let the page do whatever it does next (usually go home).
+    if (isLogout) signOut().finally(() => onLogout());
     else if (value.trim()) onSubmit(value.trim());
   };
 
@@ -278,7 +444,7 @@ export function WorkspaceModal({ mode, initialValue, onClose, onSubmit, onLogout
       className="dash-modal-backdrop"
       onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}
     >
-      <div className="dash-modal" role="dialog" aria-modal="true" aria-labelledby="dash-modal-title">
+      <div ref={dialogRef} className="dash-modal" role="dialog" aria-modal="true" aria-labelledby="dash-modal-title" tabIndex={-1}>
         <div className="dash-modal-head">
           <div>
             <p className="dash-modal-kicker">{isLogout ? 'Session' : 'Workspace'}</p>

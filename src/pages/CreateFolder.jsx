@@ -18,8 +18,10 @@ import {
   WorkspaceModal,
 } from '../components/WorkspaceChrome';
 import { workspaceRoutes } from '../components/workspace-nav';
-import { useTheme } from '../components/ThemeContext';
+import { useTheme } from '../components/theme';
 import { navigate } from '../router';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { createFolder as saveNewFolder, listFolderOptions, ROOT_FOLDER } from '../storage/folders';
 
 const MAX_NAME = 48;
 
@@ -30,13 +32,6 @@ const COLORS = [
   { id: 'lavender', label: 'Lavender' },
   { id: 'sky', label: 'Sky' },
   { id: 'gold', label: 'Gold' },
-];
-
-const PARENTS = [
-  { id: 'root', name: 'Root level', meta: 'Main directory' },
-  { id: 'php', name: 'PHP Docs', meta: '4 files' },
-  { id: 'legal', name: 'Legal drafts', meta: '2 files' },
-  { id: 'research', name: 'Research', meta: '1 file' },
 ];
 
 function nameFromUrl() {
@@ -60,11 +55,17 @@ export default function CreateFolder() {
 
   const [name, setName] = useState(nameFromUrl);
   const [color, setColor] = useState('gold');
-  const [parent, setParent] = useState('root');
+  // "New folder" inside an open folder arrives here as ?parent=<id>.
+  const [parent, setParent] = useState(
+    () => new URLSearchParams(window.location.search).get('parent') || 'root',
+  );
+
+  // Real folders from IndexedDB, so a new folder can sit inside an existing one.
+  const parentOptions = useLiveQuery(listFolderOptions, []) ?? [ROOT_FOLDER];
   const [created, setCreated] = useState(false);
 
   const swatch = useMemo(() => COLORS.find((c) => c.id === color) ?? COLORS[0], [color]);
-  const parentLabel = PARENTS.find((p) => p.id === parent)?.name ?? 'Root level';
+  const parentLabel = parentOptions.find((p) => p.id === parent)?.name ?? 'Root level';
   const trimmedName = name.trim();
 
   const announce = (message) => {
@@ -93,10 +94,16 @@ export default function CreateFolder() {
     setMobileSidebar(false);
   };
 
-  const createFolder = () => {
-    if (!trimmedName) return;
-    setCreated(true);
-    announce(`Folder "${trimmedName}" created`);
+  const createFolder = async () => {
+    if (!trimmedName || created) return;
+    try {
+      await saveNewFolder({ name: trimmedName, color, parentId: parent });
+      setCreated(true);
+      announce(`Folder "${trimmedName}" created`);
+    } catch (error) {
+      console.error(error);
+      announce('The folder could not be saved. Check that your browser allows site storage, then try again.');
+    }
   };
 
   return (
@@ -206,7 +213,7 @@ export default function CreateFolder() {
                 <div className="folder-field">
                   <span className="folder-eyebrow">Nest inside existing folder (optional)</span>
                   <div className="folder-parents">
-                    {PARENTS.map((option) => {
+                    {parentOptions.map((option) => {
                       const active = option.id === parent;
                       return (
                         <button

@@ -1,0 +1,3 @@
+# Build output. The browser build goes to ../src/engine/pkg (ignored there too).
+target/
+Cargo.lock

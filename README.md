@@ -15,6 +15,9 @@ University final-year project.
 | **Vite 8** | dev server and production build |
 | **Plain CSS** | one stylesheet per page, no CSS framework |
 | **lucide-react** | icons |
+| **Tiptap 3** | the rich-text editor |
+| **Dexie** | browser database (IndexedDB) — documents, folders, versions |
+| **mammoth · pdf.js · docx** | import .docx/.pdf, export .docx (loaded only when used) |
 | **oxlint** | linting |
 
 No router library, no state library, no UI kit. Routing is under 20 lines in
@@ -118,9 +121,9 @@ follows the dark-mode setting from `ThemeContext`.
 
 ## Status
 
-Front-end only. There is no backend yet, so sign-in, import progress and
-password reset are simulated in the browser, and **nothing persists across a
-reload** except the import screen's recent-documents list.
+No backend yet, so sign-in and password reset are simulated. Documents,
+folders, versions and settings are stored in the browser (IndexedDB) and
+survive a reload; nothing is uploaded.
 
 Project conventions, architecture notes and known open issues are kept in
 [CLAUDE.md](CLAUDE.md).

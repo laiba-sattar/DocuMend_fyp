@@ -16,10 +16,9 @@ import {
   Lightbulb,
   ListFilter,
   LockKeyhole,
-  MoreHorizontal,
+  UnlockKeyhole,
   Pencil,
   Plus,
-  Search,
   Upload,
 } from 'lucide-react';
 import {
@@ -30,32 +29,64 @@ import {
   WorkspaceModal,
 } from '../components/WorkspaceChrome';
 import { workspaceRoutes } from '../components/workspace-nav';
-import { useTheme } from '../components/ThemeContext';
+import { useTheme } from '../components/theme';
+import { useAuth } from '../components/AuthContext';
 import { navigate } from '../router';
+import { usePreference } from '../settings/preferences';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { createDocument, listDocuments, updateDocument } from '../storage/documents';
+import { pendingCount } from '../sync/metadata';
+import { formatModified, pageLabel, pagesFor } from '../storage/format';
+import { importFile } from '../editor/importers';
+import { formatBytes, formatPercent, getStorageReport } from '../storage/quota';
 
 /* ==========================================================================
    Content data
    ========================================================================== */
 
-const startingDocuments = [
-  { id: 1, title: 'Thesis_Chapter_3', type: 'DOCX', edited: 'Today, 9:42 AM', pages: 20, status: 'In progress', color: 'saffron' },
-  { id: 2, title: 'FYP_phase_01', type: 'PDF', edited: 'Yesterday, 4:18 PM', pages: 30, status: 'Done', color: 'sage' },
-  { id: 3, title: 'Methodology_section', type: 'DOCX', edited: 'Jun 14, 2024', pages: 47, status: 'In progress', color: 'coral' },
-  { id: 4, title: 'Annual_Report_2024', type: 'PDF', edited: 'Jun 11, 2024', pages: 50, status: 'Backlog', color: 'lavender' },
-  { id: 5, title: 'Research_notes_final', type: 'DOCX', edited: 'Jun 05, 2024', pages: 12, status: 'Done', color: 'sky' },
-  { id: 6, title: 'Opening_scene_v2', type: 'DOCX', edited: 'May 29, 2024', pages: 8, status: 'In progress', color: 'gold' },
-];
+/**
+ * Which of the three columns a document belongs in.
+ *
+ *   Done         the writer marked it finished
+ *   In progress  it has words in it
+ *   Not started  it was created and never written in
+ *
+ * "Not started" replaced a column called Backlog, which counted nothing: a
+ * document either has words or it does not, and a page you have not begun is
+ * the one worth being reminded of.
+ */
+function stageOf(doc) {
+  if (doc.status === 'done') return 'Done';
+  return (doc.wordCount ?? 0) > 0 ? 'In progress' : 'Not started';
+}
 
-// Same limits the import screen at /upload enforces, so a file dropped on the
-// tile and a file chosen there are accepted or refused identically.
-const ACCEPTED_EXTENSIONS = /\.(pdf|docx?|txt|rtf)$/i;
-const MAX_FILE_BYTES = 20 * 1024 * 1024;
+/** Shapes a stored document record into what DocumentRow draws. */
+function toRow(doc) {
+  const edited = formatModified(doc.updatedAt);
+  return {
+    id: doc.id,
+    title: doc.title,
+    type: doc.format ?? 'DOCX',
+    edited: edited.charAt(0).toUpperCase() + edited.slice(1),
+    pages: pagesFor(doc.wordCount),
+    status: stageOf(doc),
+    words: doc.wordCount ?? 0,
+    color: doc.tint ?? 'gold',
+  };
+}
 
-const statusClass = {
-  Done: 'dash-status-done',
-  'In progress': 'dash-status-progress',
-  Backlog: 'dash-status-backlog',
-};
+/** "Tuesday, 15 September 2026" — today, in the reader's own language. */
+function todayLabel() {
+  return new Date().toLocaleDateString(undefined, {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
+/** What the Filter button steps through, in order. */
+const STAGES = ['All', 'In progress', 'Done', 'Not started'];
 
 /* ==========================================================================
    Pieces
@@ -80,37 +111,77 @@ function QuickAction({ icon: Icon, title, description, tone, onClick, onDrop }) 
   );
 }
 
-function ProjectSummary() {
+/**
+ * The completion ring — counted from the reader's own documents.
+ *
+ * It used to say 71% over eight finished projects no matter what was on the
+ * screen, which is worse than saying nothing: a dashboard that invents numbers
+ * teaches you to stop reading it. Now the ring is finished ÷ total and the
+ * three counts are real; the line under it says what an empty one means.
+ */
+function ProjectSummary({ documents }) {
+  const total = documents.length;
+  const done = documents.filter((doc) => doc.status === 'Done').length;
+  const inProgress = documents.filter((doc) => doc.status === 'In progress').length;
+  const notStarted = total - done - inProgress;
+
+  const percent = total ? Math.round((done / total) * 100) : 0;
+  const CIRCUMFERENCE = 295; // 2πr for r = 47
+  // How much of the ring stays undrawn. The stylesheet reads this too: its
+  // draw-in animation ends here, instead of at the 71% it used to be pinned to.
+  const ringOffset = CIRCUMFERENCE - (CIRCUMFERENCE * percent) / 100;
+  const words = documents.reduce((sum, doc) => sum + doc.words, 0);
+
+  const pad = (value) => String(value).padStart(2, '0');
+
   return (
     <section className="dash-summary">
       <div className="dash-summary-head">
         <div>
-          <p className="dash-eyebrow">This month</p>
-          <h2 className="dash-card-title dash-serif">Project completion</h2>
+          <p className="dash-eyebrow">Your work</p>
+          <h2 className="dash-card-title dash-serif">Documents finished</h2>
         </div>
-        <button type="button" className="dash-ghost-btn" aria-label="Filter project summary"><MoreHorizontal size={17} /></button>
+        {/* A "filter project summary" button used to sit here with nothing
+            behind it. A summary of everything has nothing to filter. */}
       </div>
 
       <div className="dash-summary-body">
         <div className="dash-ring">
-          <svg viewBox="0 0 128 128" role="img" aria-label="Project completion: 71 percent overall">
+          <svg viewBox="0 0 128 128" role="img" aria-label={`${percent} per cent of your documents are marked done`}>
             <circle className="dash-ring-track" cx="64" cy="64" r="47" fill="none" strokeWidth="12" />
-            <circle className="dash-ring-fill" cx="64" cy="64" r="47" fill="none" strokeWidth="12" strokeLinecap="round" strokeDasharray="295" strokeDashoffset="85.5" />
+            <circle
+              className="dash-ring-fill"
+              cx="64" cy="64" r="47" fill="none" strokeWidth="12"
+              // A round cap on a zero-length arc still paints a dot, which
+              // would put a mark on the ring at nought per cent.
+              strokeLinecap={percent > 0 ? 'round' : 'butt'}
+              strokeDasharray={CIRCUMFERENCE}
+              strokeDashoffset={ringOffset}
+              style={{ '--dash-ring-offset': ringOffset }}
+            />
           </svg>
           <div className="dash-ring-centre">
-            <span className="dash-ring-value dash-serif">71%</span>
-            <span className="dash-ring-label">overall</span>
+            <span className="dash-ring-value dash-serif">{percent}%</span>
+            {/* One short word. "no documents" was two words too many for a
+                circle this size — the line under the ring already says what
+                an empty dashboard means. */}
+            <span className="dash-ring-label">done</span>
           </div>
         </div>
 
         <div className="dash-legend">
-          <div className="dash-legend-row"><span className="dash-swatch dash-swatch-done" />Project done<strong>08</strong></div>
-          <div className="dash-legend-row"><span className="dash-swatch dash-swatch-progress" />In progress<strong>05</strong></div>
-          <div className="dash-legend-row"><span className="dash-swatch dash-swatch-backlog" />Backlog<strong>02</strong></div>
+          <div className="dash-legend-row"><span className="dash-swatch dash-swatch-done" />Finished<strong>{pad(done)}</strong></div>
+          <div className="dash-legend-row"><span className="dash-swatch dash-swatch-progress" />In progress<strong>{pad(inProgress)}</strong></div>
+          <div className="dash-legend-row"><span className="dash-swatch dash-swatch-backlog" />Not started<strong>{pad(notStarted)}</strong></div>
         </div>
       </div>
 
-      <p className="dash-summary-foot"><Lightbulb size={13} /> A steady 18% ahead of last month</p>
+      <p className="dash-summary-foot">
+        <Lightbulb size={13} />
+        {total === 0
+          ? 'Create a document and this fills in on its own.'
+          : `${words.toLocaleString()} ${words === 1 ? 'word' : 'words'} across ${total} ${total === 1 ? 'document' : 'documents'}`}
+      </p>
     </section>
   );
 }
@@ -128,11 +199,13 @@ function DocumentRow({ doc, selected, onSelect, onOpen }) {
         <span className={`dash-glyph dash-glyph-${doc.color}`}><FileText size={17} strokeWidth={2} /></span>
         <div style={{ minWidth: 0 }}>
           <p className="dash-row-title">{doc.title}</p>
-          <p className="dash-row-meta">Edited {doc.edited} · {doc.pages} pages</p>
+          <p className="dash-row-meta">Edited {doc.edited} · {pageLabel(doc.pages)}</p>
         </div>
       </div>
+      {/* The "In progress" / "Not started" pill used to sit here. It repeated
+          what the line already shows and crowded every row; the ring above
+          still counts the same three stages in one place. */}
       <div className="dash-row-side">
-        <span className={`dash-status ${statusClass[doc.status]}`}>{doc.status}</span>
         <button
           type="button"
           onClick={(event) => { event.stopPropagation(); onOpen(); }}
@@ -151,19 +224,36 @@ function DocumentRow({ doc, selected, onSelect, onOpen }) {
    ========================================================================== */
 function Dashboard() {
   const { darkMode, toggleDarkMode } = useTheme();
+  const { firstName, isSignedIn } = useAuth(); // the real name from the account (S5)
+  // How many documents are still waiting to be described to the server.
+  const pending = useLiveQuery(pendingCount, [], 0);
 
   // Workspace Chrome shell states
   const [activeNav, setActiveNav] = useState('Dashboard');
-  const [privacyMode, setPrivacyMode] = useState(true);
+  // Kept in the browser's settings store, so the choice survives a reload
+  // and is the same on every page.
+  const [privacyMode, setPrivacyMode] = usePreference('privacyMode');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebar, setMobileSidebar] = useState(false);
-  const [search, setSearch] = useState('');
-  const [documents, setDocuments] = useState(startingDocuments);
-  const [selectedId, setSelectedId] = useState(1);
+  // Live list from IndexedDB, newest first.
+  const storedDocuments = useLiveQuery(listDocuments, []);
+  const loading = storedDocuments === undefined;
+  const documents = useMemo(() => (storedDocuments ?? []).map(toRow), [storedDocuments]);
+  const [selectedId, setSelectedId] = useState(null);
   const [modal, setModal] = useState(null);
-  const [editingId, setEditingId] = useState(null);
-  const [draftValue, setDraftValue] = useState('');
+  const [draftValue] = useState('');
   const [showAll, setShowAll] = useState(false);
+  const [stageFilter, setStageFilter] = useState('All');
+  const [storageReport, setStorageReport] = useState(null);
+
+  // Real browser storage use for the Storage tile; re-measured when the document list changes.
+  useEffect(() => {
+    let cancelled = false;
+    getStorageReport()
+      .then((report) => { if (!cancelled) setStorageReport(report); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [storedDocuments]);
   const [toast, setToast] = useState('');
 
   useEffect(() => {
@@ -173,12 +263,13 @@ function Dashboard() {
   }, [toast]);
 
   const filteredDocuments = useMemo(() => {
-    const normalized = search.trim().toLowerCase();
-    const matching = normalized
-      ? documents.filter((doc) => `${doc.title} ${doc.type} ${doc.status}`.toLowerCase().includes(normalized))
-      : documents;
+    // Searching lives on My documents now. Here the only narrowing is the
+    // Filter button's stage.
+    const matching = stageFilter === 'All'
+      ? documents
+      : documents.filter((doc) => doc.status === stageFilter);
     return showAll ? matching : matching.slice(0, 4);
-  }, [documents, search, showAll]);
+  }, [documents, showAll, stageFilter]);
 
   const announce = (message) => setToast(message);
 
@@ -213,60 +304,44 @@ function Dashboard() {
     navigate('/CreateFolder');
   };
 
+  // With an id: open that document. Without one: the "pick a document" screen.
   const openEditDocument = (id) => {
-    const targetId = id ?? selectedId ?? documents[0]?.id;
-    const target = documents.find((doc) => doc.id === targetId);
-    if (!target) return;
-    setSelectedId(target.id);
+    if (id) {
+      navigate(`/editor?doc=${id}`);
+      return;
+    }
     navigate('/Edit');
   };
 
-  const submitModal = (value) => {
-    if (editingId) {
-      setDocuments((current) => current.map((doc) => (
-        doc.id === editingId ? { ...doc, title: value, edited: 'Just now' } : doc
-      )));
-      announce('Document name updated');
-      navigate('/editor');
-    } else {
-      const newDocument = { id: Date.now(), title: value, type: 'DOCX', edited: 'Just now', pages: 1, status: 'In progress', color: 'gold' };
-      setDocuments((current) => [newDocument, ...current]);
-      setSelectedId(newDocument.id);
-      announce('New document created');
-      navigate('/editor');
+  const submitModal = async (value) => {
+    const title = value.trim();
+    if (!title) return;
+    try {
+      const doc = await createDocument({ title });
+      setModal(null);
+      navigate(`/editor?doc=${doc.id}`);
+    } catch (error) {
+      console.error(error);
+      // A plan limit is a decision, not a failure — say which one it was.
+      announce(error?.code === 'plan_limit'
+          ? error.message
+          : 'The document could not be saved. Check that your browser allows site storage, then try again.');
     }
-    setModal(null);
   };
 
-  const handleFiles = (files) => {
+  /** A file dropped on "Upload / drop" becomes a new document (.docx, .txt, .md). */
+  const handleFiles = async (files) => {
     const file = files?.[0];
     if (!file) return;
-
-    // The drop path had no checks at all: any file of any size became a
-    // "document" and opened the editor. Same rules the import screen uses.
-    if (!ACCEPTED_EXTENSIONS.test(file.name)) {
-      announce('That file type is not supported. Use PDF, DOC, DOCX, TXT or RTF.');
-      return;
+    announce(`Reading ${file.name}…`);
+    try {
+      const imported = await importFile(file);
+      const doc = await createDocument({ title: imported.title, source: 'imported' });
+      await updateDocument(doc.id, { content: imported.html, wordCount: imported.wordCount, format: imported.format });
+      navigate(`/editor?doc=${doc.id}`);
+    } catch (error) {
+      announce(error.message || 'That file could not be imported.');
     }
-    if (file.size > MAX_FILE_BYTES) {
-      announce('That file is over the 20 MB limit.');
-      return;
-    }
-
-    const name = file.name.replace(/\.[^/.]+$/, '') || 'Untitled document';
-    const newDocument = {
-      id: Date.now(),
-      title: name,
-      type: file.name.split('.').pop()?.toUpperCase() ?? 'DOC',
-      edited: 'Just now',
-      pages: 1,
-      status: 'In progress',
-      color: 'sky',
-    };
-    setDocuments((current) => [newDocument, ...current]);
-    setSelectedId(newDocument.id);
-    announce(`${file.name} uploaded`);
-    navigate('/editor');
   };
 
   const handleDrop = (event) => {
@@ -280,7 +355,7 @@ function Dashboard() {
   };
 
   return (
-    <div className={`dash-shell ${darkMode ? 'dash-dark' : ''}`}>
+    <div className={`dash-shell ${darkMode ? 'dash-dark' : ''} ${privacyMode ? 'dash-private' : ''}`}>
       <MobileTopbar
         onMenu={() => setMobileSidebar(true)}
         onThemeToggle={toggleDarkMode}
@@ -292,8 +367,8 @@ function Dashboard() {
         onNavigate={selectNav}
         privacyMode={privacyMode}
         onPrivacyToggle={() => {
-          setPrivacyMode((prev) => !prev);
-          announce(`Privacy mode ${privacyMode ? 'paused' : 'enabled'}`);
+          setPrivacyMode(!privacyMode);
+          announce(privacyMode ? 'Titles are visible again' : 'Titles are hidden until you point at them');
         }}
         darkMode={darkMode}
         onThemeToggle={toggleDarkMode}
@@ -307,25 +382,36 @@ function Dashboard() {
         onClose={() => setMobileSidebar(false)}
         activeNav={activeNav}
         onNavigate={selectNav}
-        onPrivacyToggle={() => setPrivacyMode((prev) => !prev)}
+        onPrivacyToggle={() => setPrivacyMode(!privacyMode)}
         onLogout={() => setModal('logout')}
       />
 
       <main className={`dash-main ${sidebarCollapsed ? 'is-wide' : ''}`}>
-        <WorkspaceHeader search={search} onSearchChange={setSearch} onAnnounce={announce} />
+        <WorkspaceHeader onAnnounce={announce} />
 
         <div className="dash-body">
           {/* Greeting */}
           <div className="dash-greeting dash-rise dash-d1">
             <div>
-              <p className="dash-date">Tuesday, September 1, 2026</p>
-              <h1 className="dash-title dash-serif">Hello, Mahnoor<em>.</em></h1>
-              <p className="dash-subtitle">Welcome back. Your ideas are safe here — ready when you are.</p>
+              <p className="dash-date">{todayLabel()}</p>
+              <h1 className="dash-title dash-serif">Hello, {firstName || 'there'}<em>.</em></h1>
+              <p className="dash-subtitle">Welcome back. Your ideas are safe here, ready when you are.</p>
             </div>
-            <div className="dash-privacy-pill">
-              <LockKeyhole size={13} className={privacyMode ? 'dash-privacy-on' : 'dash-privacy-off'} />
-              {privacyMode ? 'Privacy mode is on' : 'Privacy mode is paused'}
-            </div>
+            {/* Privacy mode used to be a word with nothing behind it. It now
+                blurs the titles in the list, for reading in a library or on a
+                train; moving the pointer over a line shows that one. */}
+            <button
+              type="button"
+              className="dash-privacy-pill"
+              onClick={() => setPrivacyMode(!privacyMode)}
+              aria-pressed={privacyMode}
+              title={privacyMode ? 'Show document titles' : 'Hide document titles from anyone looking over your shoulder'}
+            >
+              {privacyMode
+                ? <LockKeyhole size={13} className="dash-privacy-on" />
+                : <UnlockKeyhole size={13} className="dash-privacy-off" />}
+              {privacyMode ? 'Titles hidden' : 'Titles visible'}
+            </button>
           </div>
 
           {/* Quick actions + completion donut */}
@@ -336,9 +422,7 @@ function Dashboard() {
                   <p className="dash-eyebrow">Your desk</p>
                   <h2 className="dash-card-title dash-serif">Make something good.</h2>
                 </div>
-                <button type="button" onClick={() => announce('Quick actions are ready')} className="dash-ghost-btn" aria-label="More quick actions">
-                  <MoreHorizontal size={17} />
-                </button>
+                {/* "More quick actions" is gone: all four are already here. */}
               </div>
 
               <div className="dash-quick-row">
@@ -348,16 +432,31 @@ function Dashboard() {
                     the fast path and is handled here. */}
                 <QuickAction icon={Upload} title="Upload / drop" description="Bring in a document" tone="green" onClick={() => navigate('/upload')} onDrop={handleDrop} />
                 <QuickAction icon={FolderPlus} title="Create folder" description="Keep thoughts together" tone="plum" onClick={openNewFolder} />
-                <QuickAction icon={Pencil} title="Edit document" description="Continue where you left off" tone="coral" onClick={() => openEditDocument()} />
+                <QuickAction icon={Pencil} title="Edit document" description="Continue where you left" tone="coral" onClick={() => openEditDocument()} />
               </div>
 
+              {/* Both halves used to be invented ("Synced just now", "2.4 GB
+                  of 10 GB"). They now say what is actually true of this
+                  browser and this account. */}
               <div className="dash-desk-foot">
-                <span><Cloud size={14} /> Synced just now</span>
-                <span>2.4 GB of 10 GB used</span>
+                <span>
+                  {isSignedIn ? <Cloud size={14} /> : <CloudOff size={14} />}
+                  {' '}
+                  {!isSignedIn
+                    ? 'Saved on this device'
+                    : pending > 0
+                      ? 'Updating your list…'
+                      : 'List saved to your account'}
+                </span>
+                <span>
+                  {storageReport?.quota
+                    ? `${formatBytes(storageReport.usage)} of ${formatBytes(storageReport.quota)} used`
+                    : 'Measuring storage…'}
+                </span>
               </div>
             </section>
 
-            <div className="dash-rise dash-d3"><ProjectSummary /></div>
+            <div className="dash-rise dash-d3"><ProjectSummary documents={documents} /></div>
           </div>
 
           {/* Recent uploads */}
@@ -371,8 +470,15 @@ function Dashboard() {
                 <p className="dash-uploads-sub">The pages you touched most recently.</p>
               </div>
               <div className="dash-uploads-tools">
-                <button type="button" onClick={() => announce('Filters are available from search')} className="dash-tool-btn">
-                  <ListFilter size={14} /> Filter
+                {/* This button used to answer "filters are available from
+                    search", which was a polite way of doing nothing. It now
+                    steps through the three stages. */}
+                <button
+                  type="button"
+                  onClick={() => setStageFilter((current) => STAGES[(STAGES.indexOf(current) + 1) % STAGES.length])}
+                  className={`dash-tool-btn ${stageFilter !== 'All' ? 'dash-tool-accent' : ''}`}
+                >
+                  <ListFilter size={14} /> {stageFilter === 'All' ? 'Filter' : stageFilter}
                 </button>
                 <button type="button" onClick={() => setShowAll((current) => !current)} className="dash-tool-btn dash-tool-accent">
                   {showAll ? 'Show less' : 'View all'}
@@ -381,7 +487,13 @@ function Dashboard() {
               </div>
             </div>
 
-            {filteredDocuments.length > 0 ? (
+            {loading ? null : documents.length === 0 ? (
+              <div className="dash-empty">
+                <FileText size={22} />
+                <p>No documents yet. Create one, or drop a Word, text or Markdown file on "Upload / drop".</p>
+                <button type="button" onClick={openNewDocument}>Create a document</button>
+              </div>
+            ) : filteredDocuments.length > 0 ? (
               <div className="dash-rows">
                 {filteredDocuments.map((doc) => (
                   <DocumentRow
@@ -395,9 +507,11 @@ function Dashboard() {
               </div>
             ) : (
               <div className="dash-empty">
-                <Search size={22} />
-                <p>No pages match "{search}"</p>
-                <button type="button" onClick={() => setSearch('')}>Clear search</button>
+                <ListFilter size={22} />
+                <p>Nothing is marked &quot;{stageFilter}&quot; yet</p>
+                <button type="button" onClick={() => setStageFilter('All')}>
+                  Show everything
+                </button>
               </div>
             )}
           </section>
@@ -424,10 +538,13 @@ function Dashboard() {
                 <CloudOff size={17} />
               </div>
               <div className="dash-storage-figures">
-                <span className="dash-storage-value dash-serif">24<span>%</span></span>
-                <span className="dash-storage-used">2.4 / 10 GB</span>
+                <span className="dash-storage-value dash-serif">{formatPercent(storageReport?.percent ?? 0).replace('%', '')}<span>%</span></span>
+                <span className="dash-storage-used">
+                  {storageReport?.quota ? `${formatBytes(storageReport.usage)} / ${formatBytes(storageReport.quota)}` : 'Measuring…'}
+                </span>
               </div>
-              <div className="dash-meter"><span style={{ width: '24%' }} /></div>
+              <div className="dash-meter"><span style={{ width: `${Math.min(100, storageReport?.percent ?? 0)}%` }} /></div>
+              {storageReport?.nearlyFull && <p className="dash-storage-warn">Almost full. Clear old versions on the Storage page.</p>}
               <button type="button" onClick={() => selectNav('Storage')} className="dash-link-btn">
                 Manage storage <ChevronRight size={13} />
               </button>

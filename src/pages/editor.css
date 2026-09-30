@@ -248,6 +248,12 @@
 .editor-utility-tabs::-webkit-scrollbar {
   display: none;
 }
+/* overflow-x: auto above would also clip the File menu, which drops below this
+   row. The tabs wrap on narrow screens instead of scrolling. */
+.editor-mode-tabs {
+  overflow: visible;
+  flex-wrap: wrap;
+}
 .editor-file-menu-wrap {
   position: relative;
   flex: 0 0 auto;
@@ -305,6 +311,86 @@
 }
 .editor-file-menu .editor-file-menu-danger svg {
   color: #c3654e;
+}
+/* Export opens a flyout to the right on hover or keyboard focus. */
+.editor-file-menu-group {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.editor-file-menu .editor-file-menu-flyout {
+  display: none;
+  top: -6px;
+  left: calc(100% - 2px); /* overlaps the parent slightly, so the pointer never crosses a gap */
+  width: 172px;
+}
+.editor-file-menu-group:hover > .editor-file-menu-flyout,
+.editor-file-menu-group:focus-within > .editor-file-menu-flyout {
+  display: flex;
+}
+/* Short or narrow windows: the menu scrolls, and the flyout opens inline
+   (a scrolling box would clip a flyout that sticks out of it). */
+@media (max-width: 640px), (max-height: 700px) {
+  .editor-file-menu {
+    max-height: calc(100vh - 170px);
+    overflow-y: auto;
+  }
+  .editor-file-menu .editor-file-menu-flyout {
+    position: static;
+    width: auto;
+    margin: 2px 0 2px 14px;
+    padding: 0 0 0 6px;
+    border: 0;
+    border-left: 2px solid #e6ddce;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+}
+.editor-file-menu button svg.is-open {
+  transform: rotate(90deg);
+}
+.editor-file-menu-sub {
+  display: flex;
+  flex-direction: column;
+  margin: 2px 0 2px 14px;
+  padding-left: 6px;
+  border-left: 2px solid #e6ddce;
+}
+.editor-file-menu-sub button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.editor-file-menu-note {
+  margin: 4px 8px;
+  color: #a29a8b;
+  font-size: 10px;
+}
+.dash-dark .editor-file-menu-sub {
+  border-color: #456253;
+}
+
+/* Document details dialog */
+.editor-details {
+  margin: 20px 0 0;
+}
+.editor-details-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--dash-line);
+  font-size: 12px;
+}
+.editor-details-row dt {
+  color: var(--dash-ink-soft);
+}
+.editor-details-row dd {
+  margin: 0;
+  font-weight: 600;
+  text-align: right;
+  overflow-wrap: anywhere;
 }
 .editor-mode-tab {
   display: inline-flex;
@@ -1452,6 +1538,82 @@
 .dash-dark .editor-insight-panel { background: #f3eee4; }
 .dash-dark .editor-review-footer { color: #abc0af; }
 
+/* ==========================================================================
+   Issue hover card — the popover shown over a highlighted word, so a fix
+   (a misspelling's suggested corrections, a mismatched number's repair…)
+   can be applied right there instead of hunting for the matching card in
+   the review panel.
+   ========================================================================== */
+
+.editor-hover-card {
+  position: fixed;
+  z-index: 60;
+  width: 280px;
+  max-width: calc(100vw - 16px);
+  padding: 10px;
+  border: 1px solid #ead8ae;
+  border-left: 3px solid #c99a36;
+  border-radius: 9px;
+  background: #fffaf1;
+  color: #3e554b;
+  box-shadow: 0 10px 28px rgba(59, 55, 42, .18);
+  font-size: 11px;
+  animation: dash-soft .12s ease-out both;
+}
+.editor-hover-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-weight: 800;
+  font-size: 11px;
+  color: #9d7425;
+}
+.editor-hover-card-title { display: flex; align-items: center; gap: 5px; }
+.editor-hover-card-close {
+  border: 0;
+  background: transparent;
+  color: #a89a83;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+}
+.editor-hover-card-close:hover { background: #f0e6d2; }
+.editor-hover-card-message {
+  margin: 6px 0 8px;
+  color: #647168;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.editor-hover-card-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.editor-hover-card-fix {
+  border: 0;
+  border-radius: 6px;
+  padding: 5px 9px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #f8fff6;
+  background: #46a873;
+  cursor: pointer;
+}
+.editor-hover-card-fix:hover { filter: brightness(.96); }
+.editor-hover-card-ignore {
+  display: block;
+  margin: 8px 0 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #a89a83;
+  font-size: 10px;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.dash-dark .editor-hover-card { background: #f3eee4; }
+
+/* the highlighted marks themselves invite a hover */
+.editor-heatmap-mark { cursor: help; }
+
 .editor-ribbon-section {
   display: flex;
   flex-direction: column;
@@ -1824,4 +1986,675 @@
 @media (min-width: 640px) {
   .editor-hide-sm { display: inline; }
   .editor-autosave { display: inline-flex; }
+}
+
+/* Shown on the paper when the library is empty */
+.editor-empty-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 760px;
+  margin: 0 auto 16px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  border: 1px dashed currentColor;
+  opacity: .85;
+}
+.editor-empty-note p { margin: 0; }
+.editor-empty-note button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: #d8a53c;
+  color: #172d26;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ==========================================================================
+   Tiptap editor (S2)
+   The .editor-paper div is the page; Tiptap's editable element sits inside it
+   as .editor-prose.
+   ========================================================================== */
+.editor-paper:focus-within {
+  box-shadow: 0 13px 26px rgba(68, 52, 33, .13), 0 0 0 3px rgba(215, 155, 48, .16);
+}
+.editor-paper.is-disabled { opacity: .6; }
+.editor-paper .editor-prose {
+  min-height: 600px;
+  outline: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+.editor-paper .editor-prose > *:first-child { margin-top: 0; }
+.editor-paper .editor-prose p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: #a99f8e;
+  pointer-events: none;
+}
+.editor-paper h1 {
+  margin: 8px 0 12px;
+  color: #1c3d33;
+  font-family: var(--app-font-serif);
+  font-size: 24px;
+  line-height: 1.15;
+}
+.editor-paper h3 {
+  margin: 22px 0 6px;
+  color: #2c5345;
+  font-family: var(--app-font-serif);
+  font-size: 14px;
+  line-height: 1.25;
+}
+.editor-paper ul,
+.editor-paper ol {
+  margin: 0 0 12px;
+  padding-left: 1.5em;
+}
+.editor-paper li > p { margin: 0 0 4px; }
+.editor-paper ul[data-type="taskList"] {
+  padding-left: 0;
+  list-style: none;
+}
+.editor-paper ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.editor-paper ul[data-type="taskList"] li > label { margin-top: 3px; }
+.editor-paper ul[data-type="taskList"] li > div { flex: 1; }
+.editor-paper ul[data-type="taskList"] li[data-checked="true"] > div { color: #8f988f; text-decoration: line-through; }
+.editor-paper a { color: #2f6f86; text-decoration: underline; }
+.editor-paper mark { border-radius: 2px; padding: 0 1px; }
+.editor-paper code {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: #f3ecdf;
+  font-family: var(--app-font-mono);
+  font-size: .92em;
+}
+.editor-paper pre {
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #f3ecdf;
+  font-family: var(--app-font-mono);
+}
+.editor-paper th {
+  padding: 7px 8px;
+  border: 1px solid #ded3c0;
+  color: #315847;
+  background: #e8f0e7;
+  font-weight: 800;
+  text-align: left;
+}
+.editor-paper td > p,
+.editor-paper th > p { margin: 0; }
+.editor-paper .selectedCell { background: rgba(216, 165, 60, .18); }
+/* Page break (a horizontal rule in the document) */
+.editor-paper hr {
+  position: relative;
+  margin: 28px 0;
+  border: 0;
+  border-top: 2px dashed #d8cdb9;
+  overflow: visible;
+}
+.editor-paper hr::after {
+  content: 'Page break';
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0 8px;
+  color: #a2957d;
+  background: #fffdf8;
+  font-family: var(--app-font-sans);
+  font-size: 9px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.editor-paper hr.ProseMirror-selectednode { border-top-color: #d8a53c; }
+/* Find-bar matches (painted by src/editor/highlights.js) */
+.editor-find-match {
+  border-radius: 2px;
+  background: rgba(216, 165, 60, .45);
+  box-shadow: 0 0 0 1px rgba(182, 125, 24, .35);
+}
+.editor-findbar { flex-wrap: wrap; }
+.editor-findbar .editor-replace-input {
+  width: min(200px, 34vw);
+  padding-left: 10px;
+  border-left: 1px solid #ddd4c4;
+}
+.editor-findbar .editor-replace-button {
+  margin-left: 0;
+  padding: 5px 10px;
+  border: 1px solid #d9cdb6;
+  border-radius: 999px;
+  color: #2a4c3f;
+  font-size: 10px;
+  font-weight: 600;
+}
+.editor-findbar .editor-replace-button:disabled { opacity: .45; cursor: default; }
+
+/* ==========================================================================
+   Clean layout: title bar → tabs → ribbon → page → status bar.
+   The document list, command bar and canvas toolbar were removed from this
+   page; the review panel opens from the "Review panel" button.
+   ========================================================================== */
+.editor-topbar { min-height: 56px; padding: 8px 16px; }
+.editor-topbar-identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.editor-topbar-titles { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.editor-topbar .editor-document-select { width: min(380px, 42vw); color: #fff7e8; }
+.editor-topbar .editor-document-select select {
+  width: 100%;
+  padding-right: 20px;
+  overflow: hidden;
+  color: #fff7e8;
+  font-size: 15px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+.editor-topbar .editor-document-select select option { color: #172d26; }
+.editor-save-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: #a8bcae;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.editor-save-line span { width: 6px; height: 6px; border-radius: 50%; background: #7caa91; }
+.editor-save-line.is-saving span { background: #d8a53c; }
+.editor-topbar-actions { gap: 4px; }
+.editor-topbar-actions .editor-top-icon-action { width: 32px; height: 32px; }
+
+.editor-review-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, .2);
+  border-radius: 999px;
+  color: #d9e4d8;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.editor-review-switch:hover { background: rgba(255, 255, 255, .08); }
+.editor-review-switch.is-on { border-color: #f3e2b5; color: #172d26; background: #f3e2b5; }
+.editor-review-switch:focus-visible { outline: 2px solid #d8a53c; outline-offset: 2px; }
+
+.editor-main-grid.is-clean {
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 0;
+  min-height: 0;
+  padding: 0;
+  background: #e7e0d4;
+}
+.editor-workspace.review-hidden .editor-main-grid.is-clean { grid-template-columns: minmax(0, 1fr); }
+.editor-main-grid.is-clean .editor-canvas-shell {
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.editor-main-grid.is-clean .editor-review-panel {
+  border-width: 0 0 0 1px;
+  border-radius: 0;
+  box-shadow: none;
+}
+.editor-main-grid.is-clean .editor-paper-wrap {
+  min-height: 0;
+  padding: 28px clamp(12px, 3vw, 40px) 40px;
+  background: #e7e0d4;
+}
+
+/* Status bar under the page */
+.editor-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 6px 16px;
+  border-top: 1px solid #ddd3c2;
+  color: #5e6d64;
+  background: #f6f1e7;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.editor-statusbar-spacer { flex: 1; }
+.editor-zoom { display: inline-flex; align-items: center; gap: 6px; }
+.editor-zoom button {
+  width: 22px;
+  height: 22px;
+  border: 1px solid #d9cdb6;
+  border-radius: 4px;
+  color: #35473f;
+  background: #fffdf8;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.editor-zoom button:hover { border-color: #bfae8c; }
+.editor-zoom span { min-width: 38px; text-align: center; }
+
+.dash-dark .editor-main-grid.is-clean,
+.dash-dark .editor-main-grid.is-clean .editor-paper-wrap { background: #182d26; }
+.dash-dark .editor-statusbar { border-color: #385247; color: #a7b9aa; background: #203a30; }
+.dash-dark .editor-zoom button { border-color: #456253; color: #e6efdf; background: #29453a; }
+
+/* Desktop: the editor fills the window; only the page scrolls, so the status
+   bar stays at the bottom like a desktop word processor. */
+@media (min-width: 900px) {
+  /* The dark theme (version.css) adds 60px of bottom padding to html, body and the
+     shell; the editor fills the window, so remove it here. */
+  .dash-main:has(.editor-main-grid.is-clean),
+  .dash-dark:has(.editor-main-grid.is-clean),
+  .dash-dark .dash-main:has(.editor-main-grid.is-clean) { padding-bottom: 0 !important; }
+  .editor-page:has(.editor-main-grid.is-clean) {
+    display: flex;
+    height: 100dvh;
+    flex-direction: column;
+  }
+  .editor-page:has(.editor-main-grid.is-clean) .editor-workspace {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    flex-direction: column;
+  }
+  .editor-main-grid.is-clean { flex: 1; min-height: 0; }
+  .editor-main-grid.is-clean .editor-canvas-shell { height: 100%; }
+  .editor-main-grid.is-clean .editor-paper-wrap { flex: 1; min-height: 0; overflow: auto; }
+  .editor-main-grid.is-clean .editor-review-panel { min-height: 0; overflow-y: auto; }
+}
+
+@media (max-width: 1100px) {
+  .editor-main-grid.is-clean { grid-template-columns: minmax(0, 1fr); }
+  .editor-main-grid.is-clean .editor-review-panel { border-width: 1px 0 0; }
+}
+@media (max-width: 640px) {
+  .editor-statusbar { flex-wrap: wrap; gap: 10px; }
+  .editor-topbar .editor-document-select { width: min(220px, 50vw); }
+}
+
+/* ==========================================================================
+   S6 — the analysis engine (ODIE)
+   The status bar pill, the "checking" bar and the issue cards' new buttons.
+   ========================================================================== */
+
+.editor-engine-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #ddd5c6;
+  border-radius: 99px;
+  padding: 2px 9px;
+  background: #fffaf1;
+  color: #4c6155;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.editor-engine-pill:hover { border-color: #c8bda9; }
+.editor-engine-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 99px;
+  background: #4caf7a;
+}
+.editor-engine-pill.engine-starting .editor-engine-dot { background: #d29b35; }
+.editor-engine-pill.engine-off .editor-engine-dot { background: #b8695a; }
+.editor-engine-pill.is-busy .editor-engine-dot { animation: editor-engine-blink 1s ease-in-out infinite; }
+
+@keyframes editor-engine-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .25; }
+}
+
+/* The thin bar above the issue list moves while the engine is reading. */
+.editor-scan-progress.is-busy span {
+  width: 40%;
+  animation: editor-scan-slide 1.1s ease-in-out infinite;
+}
+
+@keyframes editor-scan-slide {
+  0% { margin-left: 0; }
+  50% { margin-left: 60%; }
+  100% { margin-left: 0; }
+}
+
+/* The location is now a button that jumps to the text. */
+button.editor-issue-location {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+button.editor-issue-location:hover { color: #a06d31; }
+
+/* Issue cards can carry two fixes plus Show me and Ignore. */
+.editor-issue-actions { flex-wrap: wrap; }
+
+.dash-dark .editor-engine-pill {
+  border-color: #2c4034;
+  background: #16241d;
+  color: #cfe0d6;
+}
+.dash-dark .editor-engine-pill:hover { border-color: #3c5647; }
+.dash-dark button.editor-issue-location { color: #9fb3a6; }
+.dash-dark button.editor-issue-location:hover { color: #e3b850; }
+
+@media (prefers-reduced-motion: reduce) {
+  .editor-engine-pill.is-busy .editor-engine-dot,
+  .editor-scan-progress.is-busy span { animation: none; }
+}
+
+/* ==========================================================================
+   S6 part 2 — the document outline in the Structure tab
+   Each heading is a button that jumps to it; deeper levels are indented.
+   ========================================================================== */
+
+button.editor-outline-item {
+  width: 100%;
+  border: 1px solid transparent;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+}
+button.editor-outline-item:hover { border-color: #ddd5c6; background: #fffaf1; }
+button.editor-outline-item.level-2 { padding-left: 20px; }
+button.editor-outline-item.level-3 { padding-left: 32px; }
+button.editor-outline-item.level-2 span,
+button.editor-outline-item.level-3 span { opacity: .65; }
+
+.editor-outline-empty {
+  margin: 12px 0 0;
+  color: #7d8c84;
+  font-size: 9.5px;
+  line-height: 1.5;
+}
+
+.dash-dark button.editor-outline-item:hover { border-color: #2c4034; background: #16241d; }
+.dash-dark .editor-outline-empty { color: #9fb3a6; }
+
+/* ==========================================================================
+   The document type, in the scan card
+
+   Small, because it is not a thing to change often — but a control, because
+   it decides which template the structure checks measure the document
+   against, and until it was one, an imported document could never be told
+   what it was.
+   ========================================================================== */
+
+.editor-scan-kind {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--dash-line, rgba(0, 0, 0, .08));
+}
+
+.editor-scan-kind label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  opacity: .72;
+}
+
+.editor-scan-kind select {
+  flex: 0 1 auto;
+  max-width: 60%;
+  padding: 4px 8px;
+  border: 1px solid var(--dash-line, rgba(0, 0, 0, .12));
+  border-radius: 7px;
+  background: var(--dash-card, #fff);
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.editor-scan-kind select:disabled { opacity: .5; cursor: default; }
+.editor-scan-kind select:focus-visible { outline: 2px solid var(--dash-sage, #6f9c85); outline-offset: 1px; }
+
+/* the citation-style row sits under the document-type row without a second rule */
+.editor-scan-kind.editor-scan-style {
+  margin-top: 6px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.editor-scan-hint {
+  margin: 6px 0 0;
+  font-size: 10.5px;
+  line-height: 1.45;
+  opacity: .7;
+}
+
+/* ==========================================================================
+   Citation dialog — behind the References tab's Insert citation / Manage
+   sources buttons. Reuses the shared .dash-modal chrome, wider than the
+   default 420px because a source has a lot of fields.
+   ========================================================================== */
+
+.editor-citation-dialog {
+  max-width: 640px;
+  max-height: 86vh;
+  overflow-y: auto;
+}
+
+.editor-citation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 18px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.editor-citation-entry {
+  border: 1px solid var(--dash-line);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: var(--dash-bg);
+}
+.editor-citation-entry.is-editing { padding-bottom: 12px; }
+
+.editor-citation-entry-text {
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--dash-ink);
+}
+
+.editor-citation-entry-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.editor-citation-entry-actions .dash-btn-primary,
+.editor-citation-entry-actions .dash-btn-quiet {
+  padding: 6px 12px;
+  font-size: 10.5px;
+}
+
+.editor-citation-page-input {
+  width: 76px;
+  height: 32px !important;
+  flex: 0 0 auto;
+}
+
+.editor-citation-edit-text {
+  height: auto !important;
+  min-height: 72px;
+  padding: 10px 12px;
+  resize: vertical;
+  font: 500 11.5px/1.5 inherit;
+}
+
+.dash-btn-icon {
+  border: 1px solid var(--dash-line);
+  background: transparent;
+  border-radius: 9px;
+  padding: 6px;
+  color: var(--dash-ink-soft);
+  cursor: pointer;
+  display: inline-flex;
+}
+.dash-btn-icon:hover { background: var(--dash-raised); }
+.dash-btn-icon.is-danger:hover { color: #b6432f; border-color: rgba(182, 67, 47, .4); }
+
+.editor-citation-empty-note { margin-top: 14px; }
+
+.editor-citation-form { margin-top: 18px; }
+
+.editor-citation-form-label {
+  margin: 18px 0 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--dash-ink-soft);
+}
+
+.editor-citation-form-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+}
+.editor-citation-form-row > div { flex: 1 1 0; min-width: 0; }
+
+.editor-citation-add-author,
+.editor-citation-remove-author {
+  margin: 8px 0 0;
+  font-size: 10.5px;
+}
+.editor-citation-remove-author { flex: 0 0 auto; }
+
+.editor-citation-add-source { margin-top: 18px; }
+
+@media (max-width: 560px) {
+  .editor-citation-form-row { flex-direction: column; align-items: stretch; }
+}
+
+/* the "which standard?" step, and the boilerplate reminder once one is picked */
+
+.editor-citation-standards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.editor-citation-standard-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  text-align: left;
+  border: 1px solid var(--dash-line);
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: var(--dash-bg);
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease;
+}
+.editor-citation-standard-card:hover { border-color: var(--dash-gold); }
+.editor-citation-standard-card.is-current { border-color: var(--dash-gold-strong); background: rgba(216, 165, 60, .08); }
+
+.editor-citation-standard-head { display: flex; align-items: center; gap: 8px; }
+.editor-citation-standard-name { font: 700 14px inherit; color: var(--dash-ink); }
+.editor-citation-standard-badge {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--dash-gold-strong);
+  border: 1px solid var(--dash-gold-strong);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.editor-citation-standard-blurb { font-size: 11px; color: var(--dash-ink-soft); }
+.editor-citation-standard-example {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  font: 500 10.5px/1.5 ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  color: var(--dash-ink);
+  background: var(--dash-card);
+  border: 1px solid var(--dash-line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  white-space: pre-wrap;
+}
+
+.editor-citation-boilerplate {
+  margin-top: 16px;
+  border: 1px solid var(--dash-line);
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: var(--dash-bg);
+}
+.editor-citation-boilerplate-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--dash-ink-soft);
+}
+.editor-citation-boilerplate-head .dash-btn-quiet { padding: 4px 10px; font-size: 10px; }
+.editor-citation-boilerplate-line {
+  display: block;
+  margin-top: 8px;
+  font: 500 11px/1.6 ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  color: var(--dash-ink);
+}
+
+/* ==========================================================================
+   Mark done
+
+   Sits in the topbar beside Export. Quiet until it is on, then it holds the
+   deep green, because "this one is finished" is worth seeing from across the
+   room — and because the dashboard's finished count is now reading it.
+   ========================================================================== */
+
+.editor-done-action.is-done {
+  border-color: rgba(33, 72, 59, .5);
+  background: #21483b;
+  color: #f3eee3;
+}
+
+.editor-done-action.is-done:hover {
+  background: #1a3b30;
+}
+
+.editor-done-action:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+.dash-dark .editor-done-action.is-done {
+  border-color: rgba(124, 170, 145, .55);
+  background: rgba(124, 170, 145, .22);
+  color: #d8ebdf;
 }

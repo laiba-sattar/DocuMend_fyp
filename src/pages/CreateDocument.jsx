@@ -20,7 +20,7 @@
  * Confirming sends the reader into the editor, which is where "Create
  * document" always landed before this screen existed.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import './create-document.css';
 import {
   Check,
@@ -39,19 +39,19 @@ import {
   WorkspaceModal,
 } from '../components/WorkspaceChrome';
 import { workspaceRoutes } from '../components/workspace-nav';
-import { useTheme } from '../components/ThemeContext';
+import { useTheme } from '../components/theme';
 import { navigate } from '../router';
+import { usePreference } from '../settings/preferences';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { DOCUMENT_TYPES, createDocument as saveNewDocument } from '../storage/documents';
+import { listFolderOptions, ROOT_FOLDER } from '../storage/folders';
 
 const MAX_NAME = 64;
 
-const TYPES = ['Thesis', 'Research paper', 'Legal', 'Report', 'Other'];
-
-const FOLDERS = [
-  { id: 'php', name: 'PHP Docs', meta: '4 files' },
-  { id: 'legal', name: 'Legal drafts', meta: '2 files' },
-  { id: 'research', name: 'Research', meta: '1 file' },
-  { id: 'root', name: 'Root level', meta: 'Main directory' },
-];
+// The one list, from the module that writes the record. It used to be typed
+// out again here, which is how a type could exist on this screen that the
+// engine had never heard of.
+const TYPES = DOCUMENT_TYPES;
 
 const ANALYSES = [
   { id: 'grammar', label: 'Grammar', hint: 'Style + syntax pass' },
@@ -84,18 +84,34 @@ export default function CreateDocument() {
 
   // Page state. The name is seeded once, from the URL.
   const [name, setName] = useState(nameFromUrl);
-  const [type, setType] = useState('Thesis');
+  // The default comes from Settings → Document types, so someone writing one
+  // thesis chapter after another is not choosing it every time.
+  const [defaultKind] = usePreference('defaultKind');
+  const [type, setType] = useState(defaultKind);
+  const [typeTouched, setTypeTouched] = useState(false);
+  // The preference arrives a moment after the first render (it is read from
+  // IndexedDB), so it is applied then — unless a choice has already been made.
+  useEffect(() => {
+    if (!typeTouched && defaultKind && TYPES.includes(defaultKind)) setType(defaultKind);
+  }, [defaultKind, typeTouched]);
   const [query, setQuery] = useState('');
-  const [folder, setFolder] = useState('php');
+  // "New document" inside an open folder arrives here as ?folder=<id>.
+  const [folder, setFolder] = useState(
+    () => new URLSearchParams(window.location.search).get('folder') || 'root',
+  );
+  const [saving, setSaving] = useState(false);
+
+  // Real folders from IndexedDB; re-renders on its own when a folder is added.
+  const folderOptions = useLiveQuery(listFolderOptions, []) ?? [ROOT_FOLDER];
   const [checks, setChecks] = useState(['grammar', 'contradiction']);
 
   const trimmedName = name.trim();
-  const folderLabel = FOLDERS.find((item) => item.id === folder)?.name ?? 'Root level';
+  const folderLabel = folderOptions.find((item) => item.id === folder)?.name ?? 'Root level';
 
   const visibleFolders = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return FOLDERS.filter((item) => item.name.toLowerCase().includes(needle));
-  }, [query]);
+    return folderOptions.filter((item) => item.name.toLowerCase().includes(needle));
+  }, [query, folderOptions]);
 
   const announce = (message) => {
     setToast(message);
@@ -129,9 +145,20 @@ export default function CreateDocument() {
     ));
   };
 
-  const createDocument = () => {
-    if (!trimmedName) return;
-    navigate('/editor');
+  const createDocument = async () => {
+    if (!trimmedName || saving) return;
+    setSaving(true);
+    try {
+      const doc = await saveNewDocument({ title: trimmedName, type, folderId: folder, checks });
+      navigate(`/editor?doc=${doc.id}`);
+    } catch (error) {
+      console.error(error);
+      // A plan limit is a decision, not a failure — say which one it was.
+      announce(error?.code === 'plan_limit'
+        ? error.message
+        : 'The document could not be saved. Check that your browser allows site storage, then try again.');
+      setSaving(false);
+    }
   };
 
   return (
@@ -220,7 +247,7 @@ export default function CreateDocument() {
                         key={option}
                         type="button"
                         aria-pressed={option === type}
-                        onClick={() => setType(option)}
+                        onClick={() => { setTypeTouched(true); setType(option); }}
                         className={`newdoc-type ${option === type ? 'is-active' : ''}`}
                       >
                         {option}
@@ -273,7 +300,7 @@ export default function CreateDocument() {
 
                 {/* Analysis toggles */}
                 <div className="newdoc-field">
-                  <span className="newdoc-eyebrow">Run DDIE analysis on open</span>
+                  <span className="newdoc-eyebrow">Run ODIE analysis on open</span>
                   <div className="newdoc-checks">
                     {ANALYSES.map((option) => {
                       const on = checks.includes(option.id);
@@ -314,7 +341,7 @@ export default function CreateDocument() {
                 <button
                   type="button"
                   className="newdoc-primary"
-                  disabled={!trimmedName}
+                  disabled={!trimmedName || saving}
                   onClick={createDocument}
                 >
                   <Plus size={15} strokeWidth={2.6} /> Create document

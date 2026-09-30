@@ -1,30 +1,22 @@
 import { useEffect, useState } from 'react';
 import {
-  ArrowRight,
   Check,
   CheckCircle2,
   Copy,
   Download,
   FileCheck2,
   FileKey,
-  Globe,
-  HardDrive,
   KeyRound,
   Link2,
   Lock,
   QrCode,
   Radio,
   RefreshCw,
-  Send,
-  Share2,
-  Shield,
-  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Users,
   Wifi,
   X,
-  Zap,
 } from 'lucide-react';
 import {
   MobileDrawer,
@@ -33,7 +25,7 @@ import {
   WorkspaceModal,
 } from '../components/WorkspaceChrome';
 import { workspaceRoutes } from '../components/workspace-nav';
-import { useTheme } from '../components/ThemeContext';
+import { useTheme } from '../components/theme';
 import { navigate } from '../router';
 import './share.css';
 

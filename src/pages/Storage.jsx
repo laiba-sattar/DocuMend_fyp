@@ -1,28 +1,16 @@
 import { useEffect, useState } from 'react';
 import {
   AlertOctagon,
-  ArrowRight,
-  Check,
   CheckCircle2,
-  Clock,
   Cloud,
   Cpu,
   Database,
-  Download,
-  FilePlus2,
   FileText,
-  HardDrive,
   History,
   Lock,
-  Play,
   Plus,
   RefreshCw,
-  RotateCcw,
-  Shield,
-  ShieldCheck,
   Sparkles,
-  Trash2,
-  Zap,
 } from 'lucide-react';
 import {
   MobileDrawer,
@@ -31,8 +19,19 @@ import {
   WorkspaceModal,
 } from '../components/WorkspaceChrome';
 import { workspaceRoutes } from '../components/workspace-nav';
-import { useTheme } from '../components/ThemeContext';
+import { useTheme } from '../components/theme';
 import { navigate } from '../router';
+import {
+  formatBytes,
+  formatPercent,
+  getStorageReport,
+  requestPersistentStorage,
+  WARN_AT_PERCENT,
+  wipeAllData,
+} from '../storage/quota';
+import { deleteOldAutoVersions } from '../storage/versions';
+import { clockTime } from '../storage/format';
+import { deleteNliModels, nliModelBytes } from '../engine/nliModelCache';
 import './storage.css';
 
 export default function Storage() {
@@ -47,146 +46,77 @@ export default function Storage() {
   const [modal, setModal] = useState(null);
   const [toast, setToast] = useState('');
 
-  // Storage Dynamic State
+  // Real numbers from IndexedDB and the browser's Storage API (src/storage/quota.js).
   const [isRefreshing, setIsRefreshing] = useState(true);
-  const [storageData, setStorageData] = useState({
-    totalLimitMB: 250,
-    documentsMB: 0,
-    versionCacheMB: 0,
-    encryptedBlobsMB: 0,
-    embeddingsMB: 0,
-    docCount: 0,
-    snapshotCount: 0,
-    lastSyncTime: 'Scanning...',
-  });
-
+  const [report, setReport] = useState(null);
+  const [lastCheck, setLastCheck] = useState(null);
   const [confirmAction, setConfirmAction] = useState(null);
+  // S7 — bytes the on-device NLI model is using, read from Cache Storage
+  // rather than the Dexie-based report above (see engine/nliModelCache.js).
+  const [nliBytes, setNliBytes] = useState(0);
+  const refreshNliBytes = () => { nliModelBytes().then(setNliBytes).catch(() => setNliBytes(0)); };
+  useEffect(() => { refreshNliBytes(); }, []);
 
   const notify = (msg) => {
     setToast(msg);
     window.setTimeout(() => setToast(''), 2700);
   };
 
-  // Pull actual documents count from local storage or initialize realistic values
-  const runStorageDiagnostics = () => {
+  const runStorageDiagnostics = async () => {
     setIsRefreshing(true);
-
-    window.setTimeout(() => {
-      // Dynamic count reading: check if user has custom docs stored
-      const savedDocs = JSON.parse(localStorage.getItem('documend_documents') || 'null');
-      const baseDocsCount = savedDocs && Array.isArray(savedDocs) ? savedDocs.length : 12;
-      
-      const savedSnapshots = parseInt(localStorage.getItem('documend_snapshot_count') || '247', 10);
-
-      // Memory calculations linked dynamically to document and snapshot count
-      const computedDocMB = Math.round(baseDocsCount * 7.8);
-      const computedCacheMB = Math.round(savedSnapshots * 0.22);
-      const computedBlobMB = Math.round(baseDocsCount * 3.1);
-      const computedEmbedMB = Math.round(baseDocsCount * 1.05);
-
-      setStorageData({
-        totalLimitMB: 250,
-        documentsMB: computedDocMB,
-        versionCacheMB: computedCacheMB,
-        encryptedBlobsMB: computedBlobMB,
-        embeddingsMB: computedEmbedMB,
-        docCount: baseDocsCount,
-        snapshotCount: savedSnapshots,
-        lastSyncTime: 'Just now',
-      });
+    try {
+      setReport(await getStorageReport());
+      setLastCheck(Date.now());
+    } catch (error) {
+      console.error(error);
+      notify('Storage could not be measured in this browser.');
+    } finally {
       setIsRefreshing(false);
-    }, 400);
+    }
   };
 
   useEffect(() => {
     runStorageDiagnostics();
   }, []);
 
-  // Helper: Simulate saving a new document dynamically
-  const handleAddNewDocument = () => {
-    setStorageData((prev) => {
-      const newDocCount = prev.docCount + 1;
-      const newSnapCount = prev.snapshotCount + 3;
-      const newDocMB = prev.documentsMB + 8;
-      const newCacheMB = prev.versionCacheMB + 2;
-      const newBlobMB = prev.encryptedBlobsMB + 3;
+  // Bar widths are a share of the browser quota; tiny non-zero parts stay visible.
+  const share = (bytes) => {
+    if (!report?.quota || !bytes) return 0;
+    return Math.max(0.6, Math.min(100, (bytes / report.quota) * 100));
+  };
+  const usedPercentage = report?.percent ?? 0;
+  const nearlyFull = usedPercentage >= WARN_AT_PERCENT;
 
-      // Persist dynamic state locally
-      localStorage.setItem('documend_snapshot_count', newSnapCount.toString());
-
-      notify(`New draft saved! Document count is now ${newDocCount}`);
-      return {
-        ...prev,
-        docCount: newDocCount,
-        snapshotCount: newSnapCount,
-        documentsMB: newDocMB,
-        versionCacheMB: newCacheMB,
-        encryptedBlobsMB: newBlobMB,
-        lastSyncTime: 'A few seconds ago',
-      };
-    });
+  const handleProtect = async () => {
+    const granted = await requestPersistentStorage();
+    notify(granted
+      ? 'Protected: the browser will not clear DocuMend data to free space.'
+      : 'The browser declined for now. Chrome and Edge usually allow it once you use the app more often.');
+    runStorageDiagnostics();
   };
 
-  // Helper: Simulate taking a new manual version snapshot
-  const handleAddSnapshot = () => {
-    setStorageData((prev) => {
-      const newSnapCount = prev.snapshotCount + 1;
-      const newCacheMB = prev.versionCacheMB + 1;
-      localStorage.setItem('documend_snapshot_count', newSnapCount.toString());
-
-      notify(`Snapshot recorded! Total snapshots: ${newSnapCount}`);
-      return {
-        ...prev,
-        snapshotCount: newSnapCount,
-        versionCacheMB: newCacheMB,
-        lastSyncTime: 'Just now',
-      };
-    });
-  };
-
-  const totalUsedMB =
-    storageData.documentsMB +
-    storageData.versionCacheMB +
-    storageData.encryptedBlobsMB;
-
-  const usedPercentage = Math.min(
-    100,
-    Math.round((totalUsedMB / storageData.totalLimitMB) * 100)
-  );
-
-  const docPct = ((storageData.documentsMB / storageData.totalLimitMB) * 100).toFixed(1);
-  const cachePct = ((storageData.versionCacheMB / storageData.totalLimitMB) * 100).toFixed(1);
-  const blobPct = ((storageData.encryptedBlobsMB / storageData.totalLimitMB) * 100).toFixed(1);
-
-  const handleRunAction = (actionId) => {
-    if (actionId === 'cache') {
-      const reclaimed = Math.round(storageData.versionCacheMB * 0.45);
-      const newSnapCount = Math.max(12, storageData.snapshotCount - 90);
-      localStorage.setItem('documend_snapshot_count', newSnapCount.toString());
-
-      setStorageData((prev) => ({
-        ...prev,
-        snapshotCount: newSnapCount,
-        versionCacheMB: Math.max(14, prev.versionCacheMB - reclaimed),
-      }));
-      notify(`Version cache purged: ${reclaimed} MB reclaimed safely`);
-    } else if (actionId === 'wipe') {
-      localStorage.removeItem('documend_snapshot_count');
-      localStorage.removeItem('documend_documents');
-
-      setStorageData({
-        totalLimitMB: 250,
-        documentsMB: 0,
-        versionCacheMB: 0,
-        encryptedBlobsMB: 0,
-        embeddingsMB: 0,
-        docCount: 0,
-        snapshotCount: 0,
-        lastSyncTime: 'Reset',
-      });
-      notify('IndexedDB storage wiped completely');
-    }
+  const handleRunAction = async (actionId) => {
     setConfirmAction(null);
+    try {
+      if (actionId === 'cache') {
+        const removed = await deleteOldAutoVersions(30 * 24 * 60 * 60 * 1000);
+        notify(removed
+          ? `${removed} old auto-saved ${removed === 1 ? 'version' : 'versions'} removed. Named snapshots were kept.`
+          : 'Nothing to clear: there are no auto-saved versions older than 30 days.');
+        runStorageDiagnostics();
+      } else if (actionId === 'wipe') {
+        await wipeAllData();
+        notify('All local data deleted.');
+        window.setTimeout(() => window.location.reload(), 800);
+      } else if (actionId === 'nli-model') {
+        await deleteNliModels();
+        notify('The on-device meaning model has been removed. It downloads again next time it is turned on.');
+        refreshNliBytes();
+      }
+    } catch (error) {
+      console.error(error);
+      notify('That did not work. Close other DocuMend tabs and try again.');
+    }
   };
 
   const selectNav = (label) => {
@@ -263,11 +193,11 @@ export default function Storage() {
               <button
                 type="button"
                 className="stor-action-capsule-btn"
-                onClick={handleAddNewDocument}
-                title="Simulate saving a new document"
+                onClick={() => navigate('/create-document')}
+                title="Create a new document"
               >
                 <Plus size={15} />
-                <span>Save New Draft</span>
+                <span>New Document</span>
               </button>
 
               <button
@@ -286,16 +216,16 @@ export default function Storage() {
           <section className="stor-glass-card stor-meter-card" aria-label="Storage Usage Overview">
             <div className="stor-meter-top">
               <div className="stor-used-headline">
-                <span className="stor-pct-number">{usedPercentage}%</span>
+                <span className="stor-pct-number">{formatPercent(usedPercentage)}</span>
                 <div className="stor-used-text">
-                  <strong>used — {totalUsedMB} MB of {storageData.totalLimitMB} MB</strong>
-                  <small>Allocated quota inside isolated browser domain</small>
+                  <strong>used — {formatBytes(report?.usage)} of {report?.quota ? formatBytes(report.quota) : 'unknown'}</strong>
+                  <small>Space this browser allows DocuMend on this device</small>
                 </div>
               </div>
 
-              <div className={`stor-status-badge ${usedPercentage > 70 ? 'is-warning' : 'is-healthy'}`}>
+              <div className={`stor-status-badge ${nearlyFull ? 'is-warning' : 'is-healthy'}`}>
                 <span className="stor-pulsing-dot" />
-                <span>{usedPercentage > 70 ? 'Approaching Limit' : 'Healthy Buffer'}</span>
+                <span>{nearlyFull ? 'Almost full: clear old versions below' : 'Plenty of space'}</span>
               </div>
             </div>
 
@@ -303,18 +233,18 @@ export default function Storage() {
             <div className="stor-dynamic-track">
               <div
                 className="stor-track-seg stor-seg-green"
-                style={{ width: `${isRefreshing ? 0 : docPct}%` }}
-                title={`Documents: ${storageData.documentsMB} MB`}
+                style={{ width: `${isRefreshing ? 0 : share(report?.documentsBytes)}%` }}
+                title={`Documents: ${formatBytes(report?.documentsBytes)}`}
               />
               <div
                 className="stor-track-seg stor-seg-gold"
-                style={{ width: `${isRefreshing ? 0 : cachePct}%` }}
-                title={`Version Cache: ${storageData.versionCacheMB} MB`}
+                style={{ width: `${isRefreshing ? 0 : share(report?.versionsBytes)}%` }}
+                title={`Versions: ${formatBytes(report?.versionsBytes)}`}
               />
               <div
                 className="stor-track-seg stor-seg-blue"
-                style={{ width: `${isRefreshing ? 0 : blobPct}%` }}
-                title={`Encrypted Blobs: ${storageData.encryptedBlobsMB} MB`}
+                style={{ width: `${isRefreshing ? 0 : share(report?.otherBytes)}%` }}
+                title={`Other app data: ${formatBytes(report?.otherBytes)}`}
               />
             </div>
 
@@ -322,55 +252,55 @@ export default function Storage() {
             <div className="stor-legend-row">
               <div className="stor-legend-chip">
                 <span className="stor-legend-dot stor-dot-green" />
-                <span>Documents ({storageData.documentsMB} MB)</span>
+                <span>Documents ({formatBytes(report?.documentsBytes)})</span>
               </div>
               <div className="stor-legend-chip">
                 <span className="stor-legend-dot stor-dot-gold" />
-                <span>Version Cache ({storageData.versionCacheMB} MB)</span>
+                <span>Versions ({formatBytes(report?.versionsBytes)})</span>
               </div>
               <div className="stor-legend-chip">
                 <span className="stor-legend-dot stor-dot-blue" />
-                <span>Encrypted Blobs ({storageData.encryptedBlobsMB} MB)</span>
+                <span>Other app data ({formatBytes(report?.otherBytes)})</span>
               </div>
             </div>
           </section>
 
           {/* 2. Top-Level Metric Stats Grid */}
           <section className="stor-metrics-grid" aria-label="Storage Metrics">
-            <div className="stor-stat-box" onClick={handleAddNewDocument} style={{ cursor: 'pointer' }}>
+            <div className="stor-stat-box" onClick={() => navigate('/documents')} style={{ cursor: 'pointer' }}>
               <div className="stor-stat-icon stor-icon-green">
                 <FileText size={18} />
               </div>
-              <strong className="stor-stat-value">{storageData.docCount}</strong>
+              <strong className="stor-stat-value">{report?.documentCount ?? '–'}</strong>
               <span className="stor-stat-label">Documents Stored</span>
-              <small>Click to add simulated document</small>
+              <small>Open My documents</small>
             </div>
 
-            <div className="stor-stat-box" onClick={handleAddSnapshot} style={{ cursor: 'pointer' }}>
+            <div className="stor-stat-box" onClick={() => navigate('/version')} style={{ cursor: 'pointer' }}>
               <div className="stor-stat-icon stor-icon-gold">
                 <History size={18} />
               </div>
-              <strong className="stor-stat-value">{storageData.snapshotCount}</strong>
+              <strong className="stor-stat-value">{report?.versionCount ?? '–'}</strong>
               <span className="stor-stat-label">Version Snapshots</span>
-              <small>Click to record a new snapshot</small>
+              <small>Open Version history</small>
             </div>
 
             <div className="stor-stat-box">
               <div className="stor-stat-icon stor-icon-blue">
                 <Lock size={18} />
               </div>
-              <strong className="stor-stat-value">100%</strong>
+              <strong className="stor-stat-value">Soon</strong>
               <span className="stor-stat-label">Encrypted on Disk</span>
-              <small>AES-GCM 256-bit isolation</small>
+              <small>AES-256 arrives with the encryption layer (S3)</small>
             </div>
 
-            <div className="stor-stat-box">
+            <div className="stor-stat-box" onClick={report?.persisted ? undefined : handleProtect} style={{ cursor: report?.persisted ? 'default' : 'pointer' }}>
               <div className="stor-stat-icon stor-icon-teal">
                 <Cloud size={18} />
               </div>
-              <strong className="stor-stat-value">Synced</strong>
-              <span className="stor-stat-label">Zero-Knowledge State</span>
-              <small>Last check {storageData.lastSyncTime}</small>
+              <strong className="stor-stat-value">{report?.persisted ? 'Protected' : 'Not yet'}</strong>
+              <span className="stor-stat-label">Kept when disk is low</span>
+              <small>{report?.persisted ? `Last check ${lastCheck ? clockTime(lastCheck) : '–'}` : 'Click to ask the browser to keep your data'}</small>
             </div>
           </section>
 
@@ -382,13 +312,13 @@ export default function Storage() {
                   <FileText size={16} className="stor-color-green" />
                   <h4>Documents</h4>
                 </div>
-                <span className="stor-bd-size">{storageData.documentsMB} MB</span>
+                <span className="stor-bd-size">{formatBytes(report?.documentsBytes)}</span>
               </div>
-              <p>Active research manuscripts & document abstract syntax trees.</p>
+              <p>The text of every document, saved on this device.</p>
               <div className="stor-bd-mini-bar">
-                <div className="stor-bd-fill stor-bg-green" style={{ width: `${Math.min(100, (storageData.documentsMB / 140) * 100)}%` }} />
+                <div className="stor-bd-fill stor-bg-green" style={{ width: `${report?.usage ? Math.min(100, (report.documentsBytes / report.usage) * 100) : 0}%` }} />
               </div>
-              <span className="stor-bd-meta">{storageData.docCount} active files · AES-256 encrypted</span>
+              <span className="stor-bd-meta">{report?.documentCount ?? 0} documents · share of space DocuMend uses</span>
             </div>
 
             <div className="stor-breakdown-card">
@@ -397,28 +327,30 @@ export default function Storage() {
                   <History size={16} className="stor-color-gold" />
                   <h4>Version Cache</h4>
                 </div>
-                <span className="stor-bd-size">{storageData.versionCacheMB} MB</span>
+                <span className="stor-bd-size">{formatBytes(report?.versionsBytes)}</span>
               </div>
-              <p>Automatic snapshot differentials and sentence rollback logs.</p>
+              <p>Full copies kept by auto-save and your named snapshots.</p>
               <div className="stor-bd-mini-bar">
-                <div className="stor-bd-fill stor-bg-gold" style={{ width: `${Math.min(100, (storageData.versionCacheMB / 90) * 100)}%` }} />
+                <div className="stor-bd-fill stor-bg-gold" style={{ width: `${report?.usage ? Math.min(100, (report.versionsBytes / report.usage) * 100) : 0}%` }} />
               </div>
-              <span className="stor-bd-meta">{storageData.snapshotCount} auto-saved version checkpoints</span>
+              <span className="stor-bd-meta">{report?.autoVersionCount ?? 0} auto-saved · {(report?.versionCount ?? 0) - (report?.autoVersionCount ?? 0)} named</span>
             </div>
 
             <div className="stor-breakdown-card">
               <div className="stor-bd-header">
                 <div className="stor-bd-title">
                   <Cpu size={16} className="stor-color-purple" />
-                  <h4>Local Vector Index</h4>
+                  <h4>On-device meaning model</h4>
                 </div>
-                <span className="stor-bd-size">{storageData.embeddingsMB} MB</span>
+                <span className="stor-bd-size">{formatBytes(nliBytes)}</span>
               </div>
-              <p>Indexed embeddings used by ODIE for offline contradiction scans.</p>
+              <p>The small language model ODIE uses to catch contradictions that don&rsquo;t share any words.</p>
               <div className="stor-bd-mini-bar">
-                <div className="stor-bd-fill stor-bg-purple" style={{ width: `${Math.min(100, (storageData.embeddingsMB / 30) * 100)}%` }} />
+                <div className="stor-bd-fill stor-bg-purple" style={{ width: `${report?.usage ? Math.min(100, (nliBytes / report.usage) * 100) : 0}%` }} />
               </div>
-              <span className="stor-bd-meta">ONNX local vector embeddings index</span>
+              <span className="stor-bd-meta">
+                {nliBytes ? 'Downloaded — turn it off in Settings to stop it running.' : 'Not downloaded — turned on from Settings → Checks (S7).'}
+              </span>
             </div>
           </section>
 
@@ -450,7 +382,7 @@ export default function Storage() {
                       </div>
                     </td>
                     <td>
-                      <span className="stor-frees-tag">~28 MB</span>
+                      <span className="stor-frees-tag">named snapshots kept</span>
                     </td>
                     <td>
                       <span className="stor-risk-pill stor-risk-safe">
@@ -468,6 +400,34 @@ export default function Storage() {
                     </td>
                   </tr>
 
+                  {nliBytes > 0 && (
+                    <tr>
+                      <td>
+                        <div className="stor-action-cell">
+                          <strong>Delete the on-device meaning model</strong>
+                          <span>Frees the model&rsquo;s storage; it downloads again if turned back on in Settings</span>
+                        </div>
+                      </td>
+                      <td>
+                        <span className="stor-frees-tag">{formatBytes(nliBytes)}</span>
+                      </td>
+                      <td>
+                        <span className="stor-risk-pill stor-risk-safe">
+                          <CheckCircle2 size={12} /> Safe
+                        </span>
+                      </td>
+                      <td className="stor-td-action">
+                        <button
+                          type="button"
+                          className="stor-run-action-btn stor-btn-green"
+                          onClick={() => handleRunAction('nli-model')}
+                        >
+                          Run
+                        </button>
+                      </td>
+                    </tr>
+                  )}
+
                   <tr>
                     <td>
                       <div className="stor-action-cell">
@@ -476,7 +436,7 @@ export default function Storage() {
                       </div>
                     </td>
                     <td>
-                      <span className="stor-frees-tag stor-frees-danger">~{totalUsedMB} MB</span>
+                      <span className="stor-frees-tag stor-frees-danger">{formatBytes(report?.usage)}</span>
                     </td>
                     <td>
                       <span className="stor-risk-pill stor-risk-danger">
@@ -511,7 +471,7 @@ export default function Storage() {
               <div>
                 <h3>Wipe entire local IndexedDB vault?</h3>
                 <p>
-                  This action will permanently erase all <strong>{storageData.docCount} documents</strong> and 
+                  This action will permanently erase all <strong>{report?.documentCount ?? 0} documents</strong> and 
                   their snapshot histories from this browser. This cannot be undone.
                 </p>
               </div>
