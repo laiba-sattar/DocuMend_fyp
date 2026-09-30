@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
+import QRCode from 'qrcode';
 import {
   Check,
   CheckCircle2,
@@ -63,6 +64,19 @@ export default function Share() {
   const [keyRotated, setKeyRotated] = useState(false);
   const [copiedKey, setCopiedKey] = useState(false);
   const [qrModalOpen, setQrModalOpen] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState('');
+
+  // Generates the QR only while the modal is open, and only once the real key
+  // is ready — a 2048-bit RSA public key is a few hundred characters, dense
+  // but well within what a QR code can hold.
+  useEffect(() => {
+    if (!qrModalOpen || !myPublicKey) return;
+    let alive = true;
+    QRCode.toDataURL(myPublicKey, { width: 220, margin: 1 }).then((url) => {
+      if (alive) setQrDataUrl(url);
+    });
+    return () => { alive = false; };
+  }, [qrModalOpen, myPublicKey]);
 
   // Section 1: P2P Bridge State (still simulated — see share.css / this file's
   // history: real P2P needs a signaling channel this app doesn't have yet)
@@ -613,19 +627,13 @@ export default function Share() {
 
             <div className="share-qr-card-body">
               <div className="share-qr-matrix-preview">
-                <svg viewBox="0 0 100 100" className="share-simulated-qr" aria-hidden="true">
-                  <rect width="100" height="100" fill="#ffffff" rx="8" />
-                  <path d="M10 10h30v30h-30zM15 15v20h20v-20zM22 22h6v6h-6z" fill="#17362d" />
-                  <path d="M60 10h30v30h-30zM65 15v20h20v-20zM72 22h6v6h-6z" fill="#17362d" />
-                  <path d="M10 60h30v30h-30zM15 65v20h20v-20zM22 72h6v6h-6z" fill="#17362d" />
-                  <rect x="45" y="15" width="8" height="8" fill="#df8b29" />
-                  <rect x="45" y="30" width="8" height="8" fill="#17362d" />
-                  <rect x="45" y="65" width="8" height="8" fill="#10b981" />
-                  <rect x="60" y="60" width="10" height="10" fill="#17362d" />
-                  <rect x="75" y="75" width="15" height="15" fill="#17362d" />
-                </svg>
+                {qrDataUrl ? (
+                  <img src={qrDataUrl} width={220} height={220} alt={`QR code of ${currentDoc?.title ?? 'this document'}’s public key`} />
+                ) : (
+                  <span className="share-qr-hint">Generating…</span>
+                )}
               </div>
-              <p className="share-qr-hint">This QR is still a placeholder — it doesn’t yet encode <strong>{currentDoc?.title ?? 'this document'}</strong>’s real key.</p>
+              <p className="share-qr-hint">Scan to get <strong>{currentDoc?.title ?? 'this document'}</strong>’s real public key — this is the same string "Copy Key" copies.</p>
             </div>
 
             <div className="share-qr-modal-footer">

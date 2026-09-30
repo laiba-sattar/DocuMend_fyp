@@ -624,6 +624,9 @@
   color: #557266;
   margin: 0;
   line-height: 1.45;
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .share-qr-modal-footer {
