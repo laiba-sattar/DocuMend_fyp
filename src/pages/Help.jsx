@@ -2,29 +2,17 @@ import { useMemo, useState } from 'react';
 import {
   ArrowRight,
   BookOpen,
-  Check,
   ChevronDown,
-  ChevronRight,
-  Command,
   Compass,
   Cpu,
-  FileCheck,
-  FileQuestion,
   FileText,
-  HardDrive,
-  HelpCircle,
-  Key,
   Keyboard,
-  Layers,
   Lock,
   MessageSquare,
   Search,
-  Shield,
   ShieldCheck,
   Sparkles,
-  Wand2,
   X,
-  Zap,
 } from 'lucide-react';
 import {
   MobileDrawer,
@@ -33,7 +21,7 @@ import {
   WorkspaceModal,
 } from '../components/WorkspaceChrome';
 import { workspaceRoutes } from '../components/workspace-nav';
-import { useTheme } from '../components/ThemeContext';
+import { useTheme } from '../components/theme';
 import { navigate } from '../router';
 
 import { usePreference } from '../settings/preferences';

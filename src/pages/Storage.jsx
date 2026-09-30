@@ -1,28 +1,16 @@
 import { useEffect, useState } from 'react';
 import {
   AlertOctagon,
-  ArrowRight,
-  Check,
   CheckCircle2,
-  Clock,
   Cloud,
   Cpu,
   Database,
-  Download,
-  FilePlus2,
   FileText,
-  HardDrive,
   History,
   Lock,
-  Play,
   Plus,
   RefreshCw,
-  RotateCcw,
-  Shield,
-  ShieldCheck,
   Sparkles,
-  Trash2,
-  Zap,
 } from 'lucide-react';
 import {
   MobileDrawer,
@@ -31,7 +19,7 @@ import {
   WorkspaceModal,
 } from '../components/WorkspaceChrome';
 import { workspaceRoutes } from '../components/workspace-nav';
-import { useTheme } from '../components/ThemeContext';
+import { useTheme } from '../components/theme';
 import { navigate } from '../router';
 import {
   formatBytes,

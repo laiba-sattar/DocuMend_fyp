@@ -20,13 +20,9 @@ import { EditorState } from '@tiptap/pm/state';
 import './editor.css';
 import {
   AlertTriangle,
-  AlignCenter,
   AlignJustify,
-  AlignLeft,
-  AlignRight,
   ArrowUpRight,
   AtSign,
-  Bold,
   Bookmark,
   BookOpen,
   Check,
@@ -36,34 +32,23 @@ import {
   Cloud,
   Copy,
   Download,
-  Eraser,
   FileCheck2,
   FilePlus2,
   Files,
   FileText,
   FolderInput,
   FolderOpen,
-  Highlighter,
   History,
   ImagePlus,
   Info,
-  IndentDecrease,
-  IndentIncrease,
-  Italic,
-  KeyRound,
   LayoutPanelTop,
   Link2,
-  List,
-  ListChecks,
   ListFilter,
   ListOrdered,
   LockKeyhole,
   Maximize2,
   MessageSquare,
-  MoreHorizontal,
   Pencil,
-  PanelLeftClose,
-  PanelLeftOpen,
   PanelRightClose,
   PanelRightOpen,
   Plus,
@@ -76,15 +61,10 @@ import {
   Share2,
   ShieldCheck,
   Sparkles,
-  SpellCheck2,
-  Strikethrough,
-  Subscript,
-  Superscript,
   Table2,
   Trash2,
   TriangleAlert,
   Type,
-  Underline,
   Undo2,
   WandSparkles,
   X,
@@ -98,7 +78,7 @@ import {
   WorkspaceModal,
 } from '../components/WorkspaceChrome';
 import { workspaceRoutes } from '../components/workspace-nav';
-import { useTheme } from '../components/ThemeContext';
+import { useTheme } from '../components/theme';
 import { navigate } from '../router';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
@@ -184,7 +164,7 @@ function Editor() {
   const [privacyMode, setPrivacyMode] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebar, setMobileSidebar] = useState(false);
-  const [workspaceSearch, setWorkspaceSearch] = useState('');
+  const [_workspaceSearch, _setWorkspaceSearch] = useState('');
   const [modal, setModal] = useState(null);
   const [toast, setToast] = useState('');
 
@@ -210,14 +190,14 @@ function Editor() {
   const [showFind, setShowFind] = useState(false);
   const [findQuery, setFindQuery] = useState('');
   const [trackedChanges, setTrackedChanges] = useState(false);
-  const [commentCount, setCommentCount] = useState(2);
+  const [_commentCount, setCommentCount] = useState(2);
   // ?review=1 opens the panel straight away (used by the development samples).
   const [showReviewPanel, setShowReviewPanel] = useState(
     () => new URLSearchParams(window.location.search).get('review') === '1',
   );
   const [focusMode, setFocusMode] = useState(false);
   const [pageLayout, setPageLayout] = useState('standard');
-  const [documentSearch, setDocumentSearch] = useState('');
+  const [documentSearch, _setDocumentSearch] = useState('');
   const [showFileMenu, setShowFileMenu] = useState(false);
   const [showRecent, setShowRecent] = useState(false);
   // Which File-menu dialog is open: 'rename' | 'saveAs' | 'move' | 'version' | 'details' | null.
@@ -226,8 +206,8 @@ function Editor() {
   const [citationDialog, setCitationDialog] = useState(null);
   const insertCitationAtRef = useRef(null); // the cursor position to insert into, captured when the dialog opens
   const folderOptions = useLiveQuery(listFolderOptions, []) ?? [];
-  const [heatmapEnabled, setHeatmapEnabled] = useState(true);
-  const [documentPanelExpanded, setDocumentPanelExpanded] = useState(true);
+  const [heatmapEnabled, _setHeatmapEnabled] = useState(true);
+  const [_documentPanelExpanded, _setDocumentPanelExpanded] = useState(true);
   const [findMatches, setFindMatches] = useState(0);
   const [replaceText, setReplaceText] = useState('');
   const [importing, setImporting] = useState(false);
@@ -290,7 +270,7 @@ function Editor() {
   useEffect(() => { issuesRef.current = engine.allIssues; }, [engine.allIssues]);
 
   // Which toolbar buttons should look pressed for the text under the cursor.
-  const formats = useEditorState({
+  const _formats = useEditorState({
     editor,
     selector: ({ editor: e }) => {
       if (!e) return null;
@@ -1006,7 +986,7 @@ function Editor() {
   const engineLabel = engine.status === 'ready'
     ? (engine.engineName === 'wasm' ? 'Engine ready' : 'Engine ready (JavaScript)')
     : engine.status === 'starting' ? 'Engine starting…' : 'Engine off';
-  const visibleDocuments = documents
+  const _visibleDocuments = documents
     .filter((doc) => doc.title.toLowerCase().includes(documentSearch.toLowerCase()))
     .slice(0, 5);
 

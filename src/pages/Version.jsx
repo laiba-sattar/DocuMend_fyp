@@ -20,7 +20,6 @@ import {
   Sparkles,
   Star,
   Trash2,
-  User,
   X,
 } from "lucide-react";
 import {
@@ -32,7 +31,7 @@ import {
 import { useAuth } from '../components/AuthContext';
 import { BrandMark } from '../components/BrandMark';
 import { workspaceRoutes } from '../components/workspace-nav';
-import { useTheme } from '../components/ThemeContext';
+import { useTheme } from '../components/theme';
 import { navigate } from '../router';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { listDocuments } from '../storage/documents';

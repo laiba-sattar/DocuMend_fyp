@@ -44,7 +44,7 @@ import {
   WorkspaceModal,
 } from '../components/WorkspaceChrome';
 import { workspaceRoutes } from '../components/workspace-nav';
-import { useTheme } from '../components/ThemeContext';
+import { useTheme } from '../components/theme';
 import { useAuth } from '../components/AuthContext';
 import { navigate } from '../router';
 import { TEMPLATES } from '../engine/fallback';

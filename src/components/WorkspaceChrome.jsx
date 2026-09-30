@@ -18,7 +18,7 @@
  * these components gets the shell styles for free). Page-specific styles
  * stay in each page's own stylesheet.
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth } from './AuthContext';
 import { navigate, usePathname } from '../router';
 import './workspace-chrome.css';
@@ -383,10 +383,45 @@ function ProfileButton() {
 export function WorkspaceModal({ mode, initialValue, onClose, onSubmit, onLogout }) {
   const [value, setValue] = useState(initialValue);
   const { signOut } = useAuth();
+  const dialogRef = useRef(null);
+  const isLogout = mode === 'logout';
+
+  // Escape closes it (the same pattern as UploadDocument.jsx's dialog), and
+  // Tab/Shift+Tab stay inside it rather than escaping to the page behind.
+  useEffect(() => {
+    if (!mode) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = dialogRef.current?.querySelectorAll(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable || focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [mode, onClose]);
+
+  // The name/folder form moves focus in with the input's own `autoFocus`;
+  // logout mode has no input, so without this nothing would receive focus.
+  useEffect(() => {
+    if (isLogout) dialogRef.current?.focus();
+  }, [isLogout]);
 
   if (!mode) return null;
 
-  const isLogout = mode === 'logout';
   const isFolder = mode === 'folder';
   const title = isLogout
     ? 'Take a quiet exit?'
@@ -409,7 +444,7 @@ export function WorkspaceModal({ mode, initialValue, onClose, onSubmit, onLogout
       className="dash-modal-backdrop"
       onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}
     >
-      <div className="dash-modal" role="dialog" aria-modal="true" aria-labelledby="dash-modal-title">
+      <div ref={dialogRef} className="dash-modal" role="dialog" aria-modal="true" aria-labelledby="dash-modal-title" tabIndex={-1}>
         <div className="dash-modal-head">
           <div>
             <p className="dash-modal-kicker">{isLogout ? 'Session' : 'Workspace'}</p>

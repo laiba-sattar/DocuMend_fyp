@@ -53,7 +53,7 @@ import {
   WorkspaceModal,
 } from '../components/WorkspaceChrome';
 import { workspaceRoutes } from '../components/workspace-nav';
-import { useTheme } from '../components/ThemeContext';
+import { useTheme } from '../components/theme';
 import { navigate } from '../router';
 import { IMPORT_ACCEPT, IMPORT_EXTENSIONS, importFile } from '../editor/importers';
 import { createDocument, getDocument, updateDocument } from '../storage/documents';
@@ -118,7 +118,7 @@ function writeRecentDocuments(documents) {
    Pieces
    ========================================================================== */
 
-function FileGlyph({ type, color }) {
+function FileGlyph({ color }) {
   return (
     <span
       className="upload-file-glyph"

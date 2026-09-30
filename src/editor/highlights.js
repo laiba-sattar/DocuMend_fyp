@@ -108,7 +108,7 @@ export const DocumentHighlights = Extension.create({
               else onHover(null);
               return false;
             },
-            mouseleave(view) {
+            mouseleave(_view) {
               extension.options.onHighlightHover?.(null);
               return false;
             },

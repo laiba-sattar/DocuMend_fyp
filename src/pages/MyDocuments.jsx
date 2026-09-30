@@ -45,7 +45,7 @@ import {
   WorkspaceModal,
 } from '../components/WorkspaceChrome';
 import { workspaceRoutes } from '../components/workspace-nav';
-import { useTheme } from '../components/ThemeContext';
+import { useTheme } from '../components/theme';
 import { navigate } from '../router';
 import { usePreference } from '../settings/preferences';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -436,7 +436,7 @@ function MyDocuments() {
     try {
       await deleteDocument(doc.id);
       announce(`“${doc.title}” was deleted.`);
-    } catch (error) {
+    } catch {
       announce('That document could not be deleted.');
     }
   };

@@ -27,7 +27,7 @@ import {
   WorkspaceModal,
 } from '../components/WorkspaceChrome';
 import { workspaceRoutes } from '../components/workspace-nav';
-import { useTheme } from '../components/ThemeContext';
+import { useTheme } from '../components/theme';
 import { navigate } from '../router';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { listDocuments } from '../storage/documents';

@@ -36,12 +36,12 @@ import {
 // Navigation Helpers: Route mappings and custom client-side router
 import { BrandMark } from '../components/BrandMark';
 import { workspaceRoutes } from '../components/workspace-nav';
-import { useTheme } from '../components/ThemeContext';
+import { useTheme } from '../components/theme';
 import { navigate, usePathname } from '../router';
 
 // Custom CSS for pricing tier cards, illustrations, and dark mode overrides
 import { useAuth } from '../components/AuthContext';
-import { PLANS, limitsFor, meetsTier } from '../plans/plans';
+import { PLANS, limitsFor } from '../plans/plans';
 import { documentAllowance } from '../plans/limits';
 
 import "./pricing.css";

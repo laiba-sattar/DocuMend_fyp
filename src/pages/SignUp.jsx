@@ -82,43 +82,6 @@ function DocumentArtwork() {
   );
 }
 
-// Brand logos for the social buttons. Both are `aria-hidden` because the
-// button's own text ("Google" / "Facebook") already names it for screen
-// readers -- announcing the logo too would just repeat it.
-function GoogleIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        fill="#4285F4"
-        d="M21.8 12.2c0-.7-.1-1.4-.2-2H12v3.8h5.5a4.7 4.7 0 0 1-2 3.1v2.6h3.2c1.9-1.7 3.1-4.3 3.1-7.5z"
-      />
-      <path
-        fill="#34A853"
-        d="M12 22c2.7 0 5-.9 6.7-2.3l-3.2-2.6c-.9.6-2.1.9-3.5.9-2.7 0-5-1.8-5.8-4.3H2.9v2.7A10.1 10.1 0 0 0 12 22z"
-      />
-      <path
-        fill="#FBBC05"
-        d="M6.2 13.7a6 6 0 0 1 0-3.4V7.6H2.9a10.1 10.1 0 0 0 0 8.8l3.3-2.7z"
-      />
-      <path
-        fill="#EA4335"
-        d="M12 6c1.5 0 2.8.5 3.8 1.5l2.9-2.9C17 2.9 14.7 2 12 2a10.1 10.1 0 0 0-9.1 5.6l3.3 2.7C7 7.8 9.3 6 12 6z"
-      />
-    </svg>
-  );
-}
-
-function FacebookIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        fill="#1877F2"
-        d="M22 12a10 10 0 1 0-11.6 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.4h-1.2c-1.2 0-1.6.7-1.6 1.5V12h2.7l-.4 2.9h-2.3v7A10 10 0 0 0 22 12z"
-      />
-    </svg>
-  );
-}
-
 export default function SignUp() {
   const [form, setForm] = useState(initialForm);           // current field values
   const [showPassword, setShowPassword] = useState(false); // password shown as plain text?
