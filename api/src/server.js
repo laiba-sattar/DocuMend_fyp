@@ -8,15 +8,18 @@
  *   GET  /health        is the server (and the database) alive?
  *   /auth/*             accounts — routes/auth.js and routes/firebase.js
  *   /documents/*        metadata only — see routes/documents.js
+ *   WS   /signal/:room  P2P sync's signaling relay — see routes/signal.js
  */
 import 'dotenv/config';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
+import websocket from '@fastify/websocket';
 import { prisma } from './lib/prisma.js';
 import authRoutes from './routes/auth.js';
 import firebaseRoutes from './routes/firebase.js';
 import documentRoutes from './routes/documents.js';
+import signalRoutes from './routes/signal.js';
 
 const PORT = Number(process.env.PORT ?? 4000);
 const ORIGINS = (process.env.CORS_ORIGIN ?? 'http://localhost:5173').split(',').map((origin) => origin.trim());
@@ -33,6 +36,7 @@ const app = Fastify({
 
 await app.register(cors, { origin: ORIGINS, credentials: true });
 await app.register(jwt, { secret: process.env.JWT_SECRET });
+await app.register(websocket);
 
 // A DELETE often arrives with `content-type: application/json` and no body.
 // Fastify rejects that by default; an empty body simply means "no fields".
@@ -55,6 +59,7 @@ app.get('/health', async () => {
 await app.register(authRoutes);
 await app.register(firebaseRoutes);    // Continue with Google, and email links
 await app.register(documentRoutes);
+await app.register(signalRoutes);      // P2P sync's signaling relay — no account needed
 
 /** One shape for every error, so the app never has to guess. */
 app.setErrorHandler((error, request, reply) => {

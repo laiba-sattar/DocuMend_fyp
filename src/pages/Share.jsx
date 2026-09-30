@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import QRCode from 'qrcode';
 import {
@@ -34,6 +34,7 @@ import { createDocument, getDocument, listDocuments, updateDocument } from '../s
 import { getOrCreateKeyPair, importPublicKeyBase64, rotateKeyPair } from '../storage/shareKeys';
 import { encryptForRecipient, decryptPackage } from '../storage/shareCrypto';
 import { countWords } from '../storage/format';
+import { createHostSession, generateRoomCode, joinSession } from '../share/p2p';
 import './share.css';
 
 const htmlToText = (html) => new DOMParser().parseFromString(html, 'text/html').body.textContent || '';
@@ -78,11 +79,120 @@ export default function Share() {
     return () => { alive = false; };
   }, [qrModalOpen, myPublicKey]);
 
-  // Section 1: P2P Bridge State (still simulated — see share.css / this file's
-  // history: real P2P needs a signaling channel this app doesn't have yet)
-  const [teammateKey, setTeammateKey] = useState('');
-  const [p2pConnecting, setP2pConnecting] = useState(false);
-  const [p2pConnected, setP2pConnected] = useState(false);
+  // Section 1: P2P Bridge State — a real WebRTC connection, set up through a
+  // short room code (api/src/routes/signal.js relays only the handshake).
+  const [roomCode, setRoomCode] = useState(null);
+  const [roomRole, setRoomRole] = useState(null); // 'host' | 'guest'
+  const [p2pStatus, setP2pStatus] = useState('idle'); // idle | connecting | connected | disconnected | error
+  const [pendingJoinCode, setPendingJoinCode] = useState(null); // from a shared link's ?room=
+  const [joinCodeInput, setJoinCodeInput] = useState('');
+  const [peerPublicKey, setPeerPublicKey] = useState(null);
+  const [p2pLinkQr, setP2pLinkQr] = useState('');
+  const sessionRef = useRef(null);
+  const sendRef = useRef(null);
+  // The signaling/data-channel callbacks live for the whole session, so they
+  // read this ref rather than closing over activeDocId — a plain closure
+  // would keep whatever document was selected the moment "Create Secure Sync
+  // Bridge" was clicked, even after the reader picked a different one.
+  const activeDocIdRef = useRef(activeDocId);
+  useEffect(() => { activeDocIdRef.current = activeDocId; }, [activeDocId]);
+
+  // A link with ?room=CODE opens straight to a one-click join prompt, never
+  // an automatic connection to whoever sent it.
+  useEffect(() => {
+    const room = new URLSearchParams(window.location.search).get('room');
+    if (room) setPendingJoinCode(room.toUpperCase());
+  }, []);
+
+  useEffect(() => () => sessionRef.current?.close(), []);
+
+  const handleP2pMessage = async (message) => {
+    if (message.type === 'hello') {
+      setPeerPublicKey(await importPublicKeyBase64(message.publicKeyBase64));
+      return;
+    }
+    if (message.type === 'package') {
+      try {
+        const { privateKey } = await getOrCreateKeyPair(activeDocIdRef.current);
+        const html = await decryptPackage(message, privateKey);
+        setDecrypted({ title: message.title || 'Received document', html, source: 'p2p' });
+        notify(`Received "${message.title}" over the sync bridge.`);
+      } catch {
+        notify('Could not decrypt what the other side sent.');
+      }
+    }
+  };
+
+  // Both sides announce their real key the moment the channel opens — this is
+  // what replaces the old "paste your teammate's public key" field, and it
+  // re-announces if the reader switches documents mid-session.
+  useEffect(() => {
+    if (p2pStatus === 'connected' && myPublicKey) {
+      sendRef.current?.({ type: 'hello', publicKeyBase64: myPublicKey });
+    }
+  }, [p2pStatus, myPublicKey]);
+
+  const handleStartHost = () => {
+    const code = generateRoomCode();
+    setRoomCode(code);
+    setRoomRole('host');
+    setP2pStatus('connecting');
+    sessionRef.current?.close();
+    sessionRef.current = createHostSession(code, {
+      onStatus: setP2pStatus,
+      onConnected: (send) => { sendRef.current = send; },
+      onMessage: handleP2pMessage,
+      onError: (error) => { notify(error.message); setP2pStatus('error'); },
+    });
+  };
+
+  const handleJoin = (code) => {
+    const trimmed = code.trim().toUpperCase();
+    if (!trimmed) return;
+    setRoomCode(trimmed);
+    setRoomRole('guest');
+    setP2pStatus('connecting');
+    setPendingJoinCode(null);
+    sessionRef.current?.close();
+    sessionRef.current = joinSession(trimmed, {
+      onStatus: setP2pStatus,
+      onConnected: (send) => { sendRef.current = send; },
+      onMessage: handleP2pMessage,
+      onError: (error) => { notify(error.message); setP2pStatus('error'); },
+    });
+  };
+
+  const handleEndSession = () => {
+    sessionRef.current?.close();
+    sessionRef.current = null;
+    sendRef.current = null;
+    setRoomCode(null);
+    setRoomRole(null);
+    setP2pStatus('idle');
+    setPeerPublicKey(null);
+  };
+
+  const handleSendOverP2p = async () => {
+    if (!activeDocId || !peerPublicKey || !sendRef.current) return;
+    try {
+      const doc = await getDocument(activeDocId);
+      if (!doc) throw new Error('That document could not be found.');
+      const pkg = await encryptForRecipient(doc.content ?? '', peerPublicKey);
+      sendRef.current({ type: 'package', title: doc.title, ...pkg });
+      notify(`Sent "${doc.title}" over the sync bridge.`);
+    } catch {
+      notify('That document could not be sent.');
+    }
+  };
+
+  const p2pLink = roomCode ? `${window.location.origin}${window.location.pathname}?room=${roomCode}` : '';
+
+  useEffect(() => {
+    if (!p2pLink) { setP2pLinkQr(''); return; }
+    let alive = true;
+    QRCode.toDataURL(p2pLink, { width: 180, margin: 1 }).then((url) => { if (alive) setP2pLinkQr(url); });
+    return () => { alive = false; };
+  }, [p2pLink]);
 
   // Section 2: Asymmetric Export State
   const [packageName, setPackageName] = useState('');
@@ -133,20 +243,6 @@ export default function Share() {
     setCopiedKey(true);
     notify('Public Key copied to clipboard');
     window.setTimeout(() => setCopiedKey(false), 2000);
-  };
-
-  const handleCreateSyncBridge = (e) => {
-    e.preventDefault();
-    if (!teammateKey.trim()) {
-      notify('Please enter your teammate’s public key');
-      return;
-    }
-    setP2pConnecting(true);
-    window.setTimeout(() => {
-      setP2pConnecting(false);
-      setP2pConnected(true);
-      notify('Encrypted P2P socket established with peer');
-    }, 1200);
   };
 
   /**
@@ -207,7 +303,7 @@ export default function Share() {
       const pkg = JSON.parse(await importFile.text());
       const { privateKey } = await getOrCreateKeyPair(activeDocId);
       const html = await decryptPackage(pkg, privateKey);
-      setDecrypted({ title: pkg.title || 'Imported document', html });
+      setDecrypted({ title: pkg.title || 'Imported document', html, source: 'file' });
       notify('Package decrypted.');
     } catch {
       setDecrypted(null);
@@ -383,72 +479,138 @@ export default function Share() {
                 <div className="share-title-flex">
                   <h3>Direct P2P Link Sharing</h3>
                   <span className="share-live-sync-tag">
-                    <Radio size={12} className="share-pulsing-icon" /> WebRTC Socket
+                    <Radio size={12} className="share-pulsing-icon" /> WebRTC
                   </span>
                 </div>
-                <p>Encrypt document AST diffs using your teammate’s public key for a direct browser-to-browser sync.</p>
+                <p>A real browser-to-browser connection over a short code — no keys to paste, nothing but a code or a link to share.</p>
               </div>
             </div>
 
-            <form className="share-card-body-panel" onSubmit={handleCreateSyncBridge}>
-              <div className="share-input-block">
-                <label htmlFor="teammate-key-input">Enter Teammate’s Public Key</label>
-                <div className="share-green-capsule">
-                  <KeyRound size={16} className="share-input-key-icon" />
-                  <input
-                    id="teammate-key-input"
-                    type="text"
-                    value={teammateKey}
-                    onChange={(e) => setTeammateKey(e.target.value)}
-                    placeholder="e.g. ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICX...7eWl teammate@university.edu"
-                  />
-                  {teammateKey && (
-                    <button
-                      type="button"
-                      className="share-clear-input"
-                      onClick={() => setTeammateKey('')}
-                      aria-label="Clear key"
-                    >
-                      <X size={14} />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="share-btn-wrapper">
-                <button
-                  type="submit"
-                  className={`share-action-primary-btn ${p2pConnecting ? 'is-loading' : ''}`}
-                  disabled={p2pConnecting}
-                >
-                  {p2pConnecting ? (
-                    <>
-                      <RefreshCw size={15} className="share-spin" />
-                      <span>Negotiating Diffie-Hellman Handshake...</span>
-                    </>
-                  ) : p2pConnected ? (
-                    <>
-                      <CheckCircle2 size={16} />
-                      <span>Sync Bridge Active & Verified</span>
-                    </>
-                  ) : (
-                    <>
-                      <Link2 size={16} />
-                      <span>Create Secure Sync Bridge</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {p2pConnected && (
+            <div className="share-card-body-panel">
+              {pendingJoinCode && !roomCode && (
                 <div className="share-connected-callout">
-                  <Wifi size={16} />
-                  <span>
-                    Direct ephemeral peer connection online · 0 bytes logged to server · End-to-end authenticated
-                  </span>
+                  <Link2 size={16} />
+                  <span>Join sync session {pendingJoinCode}?</span>
+                  <button type="button" className="share-copy-key-btn" onClick={() => handleJoin(pendingJoinCode)}>Join</button>
+                  <button type="button" className="share-copy-key-btn" onClick={() => setPendingJoinCode(null)}>Ignore</button>
                 </div>
               )}
-            </form>
+
+              {!roomCode && !pendingJoinCode && (
+                <>
+                  <div className="share-btn-wrapper">
+                    <button type="button" className="share-action-primary-btn" onClick={handleStartHost} disabled={!activeDocId}>
+                      <Link2 size={16} />
+                      <span>Create Secure Sync Bridge</span>
+                    </button>
+                  </div>
+
+                  <div className="share-input-block share-mt-14">
+                    <label htmlFor="join-code-input">Or enter a code someone gave you</label>
+                    <div className="share-green-capsule">
+                      <KeyRound size={16} className="share-input-key-icon" />
+                      <input
+                        id="join-code-input"
+                        type="text"
+                        value={joinCodeInput}
+                        onChange={(e) => setJoinCodeInput(e.target.value)}
+                        placeholder="e.g. K7M3QP"
+                        maxLength={6}
+                        style={{ textTransform: 'uppercase' }}
+                      />
+                    </div>
+                    <div className="share-btn-wrapper share-mt-14">
+                      <button
+                        type="button"
+                        className="share-action-primary-btn"
+                        onClick={() => handleJoin(joinCodeInput)}
+                        disabled={!joinCodeInput.trim() || !activeDocId}
+                      >
+                        <Link2 size={16} />
+                        <span>Join with this code</span>
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {roomCode && (
+                <>
+                  {roomRole === 'host' && p2pStatus !== 'connected' && (
+                    <div className="share-identity-info" style={{ marginBottom: 14 }}>
+                      <div className="share-key-display-group">
+                        <span className="share-identity-label"><ShieldCheck size={14} className="share-accent-green" /> Room code:</span>
+                        <code className="share-key-code">{roomCode}</code>
+                      </div>
+                      {p2pLinkQr && <img src={p2pLinkQr} width={140} height={140} alt="QR code of the sync link" />}
+                      <p className="share-qr-hint">Share the code, the link, or let them scan the QR — whichever’s easiest.</p>
+                    </div>
+                  )}
+
+                  <div className="share-btn-wrapper">
+                    <button type="button" className={`share-action-primary-btn ${p2pStatus === 'connecting' ? 'is-loading' : ''}`} disabled>
+                      {p2pStatus === 'connecting' ? (
+                        <>
+                          <RefreshCw size={15} className="share-spin" />
+                          <span>Waiting for the other side...</span>
+                        </>
+                      ) : p2pStatus === 'connected' ? (
+                        <>
+                          <CheckCircle2 size={16} />
+                          <span>Sync Bridge Active & Verified</span>
+                        </>
+                      ) : (
+                        <>
+                          <X size={16} />
+                          <span>Disconnected</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {p2pStatus === 'connected' && (
+                    <div className="share-connected-callout">
+                      <Wifi size={16} />
+                      <span>
+                        Direct peer connection online · 0 bytes logged to server{peerPublicKey ? ' · their key received' : ''}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* The same `decrypted` state the file-import card below
+                      uses — shown here too, right where the reader is
+                      already looking, instead of only appearing several
+                      cards down the page. */}
+                  {decrypted?.source === 'p2p' && (
+                    <div className="share-connected-callout">
+                      <CheckCircle2 size={16} />
+                      <span>Received "{decrypted.title}" —</span>
+                      <button type="button" className="share-copy-key-btn" onClick={handleSaveImported}>
+                        Save as new document
+                      </button>
+                    </div>
+                  )}
+
+                  {p2pStatus === 'connected' && (
+                    <div className="share-btn-wrapper share-mt-14">
+                      <button
+                        type="button"
+                        className="share-action-primary-btn"
+                        onClick={handleSendOverP2p}
+                        disabled={!peerPublicKey || !activeDocId}
+                      >
+                        <Upload size={16} />
+                        <span>Send this document</span>
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="share-btn-wrapper share-mt-14">
+                    <button type="button" className="share-copy-key-btn" onClick={handleEndSession}>End session</button>
+                  </div>
+                </>
+              )}
+            </div>
           </section>
 
           {/* 3. Asymmetric File Export Card */}
@@ -586,7 +748,7 @@ export default function Share() {
                 </button>
               </div>
 
-              {decrypted && (
+              {decrypted?.source === 'file' && (
                 <div className="share-connected-callout">
                   <CheckCircle2 size={16} />
                   <span>Decrypted “{decrypted.title}” — </span>
