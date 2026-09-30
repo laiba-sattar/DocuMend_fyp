@@ -9,6 +9,7 @@
     "lint": "oxlint",
     "test:engine": "node scripts/engine-parity.mjs",
     "test:nli": "node --test scripts/nli-candidates.test.mjs",
+    "test:share": "node --test scripts/share-crypto.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

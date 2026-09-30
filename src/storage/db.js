@@ -42,6 +42,24 @@ db.version(2).stores({
   remoteDocs: 'id, deviceUpdatedAt',
 });
 
+/**
+ * Version 3 — one store for Share's per-document keypairs (real RSA-OAEP
+ * keys now, see storage/shareKeys.js; this used to be simulated).
+ *
+ * Keyed by the document's own id, one keypair per document. `CryptoKey`
+ * objects are structured-clonable, so they are stored as-is; the base64
+ * form alongside is what the page displays, copies and puts in a QR code.
+ */
+db.version(3).stores({
+  documents: 'id, folderId, category, updatedAt',
+  folders: 'id, parentId, name',
+  versions: 'id, docId, createdAt',
+  settings: 'key',
+  syncQueue: 'id, queuedAt',
+  remoteDocs: 'id, deviceUpdatedAt',
+  shareKeys: 'docId',
+});
+
 /** An id that also works on http:// LAN addresses, where crypto.randomUUID is missing. */
 export function newId() {
   if (window.crypto?.randomUUID) return window.crypto.randomUUID();
