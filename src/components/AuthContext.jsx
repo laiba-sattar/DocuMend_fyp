@@ -13,6 +13,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { api, cachedUser, hasStoredSession } from '../api/client';
 import { startSync, stopSync } from '../sync/metadata';
+import { clearVaultKey } from '../storage/vaultSession';
 import { setCurrentTier } from '../plans/limits';
 
 const AuthContext = createContext(null);
@@ -91,7 +92,7 @@ export function AuthProvider({ children }) {
    */
   useEffect(() => {
     if (status === 'signed-in') startSync();
-    else if (status === 'signed-out') stopSync();
+    else if (status === 'signed-out') { stopSync(); clearVaultKey(); }
   }, [status]);
 
   const signIn = useCallback(async (credentials) => {

@@ -135,7 +135,7 @@ export class ApiError extends Error {
   }
 }
 
-async function send(path, { method = 'GET', body, token, signal } = {}) {
+async function send(path, { method = 'GET', body, rawBody, headers: extraHeaders, token, signal } = {}) {
   let response;
   try {
     response = await fetch(`${BASE_URL}${path}`, {
@@ -143,9 +143,11 @@ async function send(path, { method = 'GET', body, token, signal } = {}) {
       signal,
       headers: {
         ...(body ? { 'content-type': 'application/json' } : {}),
+        ...(rawBody ? { 'content-type': 'application/octet-stream' } : {}),
+        ...(extraHeaders ?? {}),
         ...(token ? { authorization: `Bearer ${token}` } : {}),
       },
-      body: body ? JSON.stringify(body) : undefined,
+      body: body ? JSON.stringify(body) : rawBody,
     });
   } catch {
     throw new ApiError('DocuMend could not reach the server. Check your connection.', { code: 'offline' });
@@ -299,6 +301,23 @@ export const api = {
   saveDocumentMeta: (id, meta) => authorized(`/documents/${encodeURIComponent(id)}`, { method: 'PUT', body: meta }),
 
   deleteDocumentMeta: (id) => authorized(`/documents/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  /** The wrapped vault keys — ciphertext only (see src/storage/vault.js). */
+  getVault: () => authorized('/vault'),
+
+  saveVault: (record) => authorized('/vault', { method: 'PUT', body: record }),
+
+  /** Uploads one document's ciphertext. A 409 means another device wrote a newer version first. */
+  putBlob: (id, bytes, { iv, expectedVersion }) =>
+    authorized(`/documents/${encodeURIComponent(id)}/blob`, {
+      method: 'PUT',
+      rawBody: bytes,
+      headers: { 'x-iv': iv, 'x-expected-version': String(expectedVersion) },
+    }),
+
+  getBlob: (id) => authorized(`/documents/${encodeURIComponent(id)}/blob`),
+
+  deleteBlob: (id) => authorized(`/documents/${encodeURIComponent(id)}/blob`, { method: 'DELETE' }),
 };
 
 export default api;

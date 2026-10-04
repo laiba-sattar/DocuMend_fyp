@@ -40,6 +40,36 @@ model User {
 
   sessions  Session[]
   documents DocumentMeta[]
+  vault     UserVault?
+  blobs     DocumentBlob[]
+}
+
+/// The wrapped keys for the user's encryption vault (see src/storage/vault.js).
+/// Every field is ciphertext or a salt — the server cannot unwrap any of it.
+model UserVault {
+  userId            String   @id
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  passSalt          String
+  passIv            String
+  wrappedByPass     String
+  recSalt           String
+  recIv             String
+  wrappedByRecovery String
+  updatedAt         DateTime @updatedAt
+}
+
+/// One encrypted document body. The bytes live on disk (see routes/vault.js);
+/// this row only says where, which version, and the IV they were sealed with.
+model DocumentBlob {
+  docId     String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  version   Int      @default(1)
+  iv        String
+  sizeBytes Int
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
 }
 
 /// One signed-in device. Holds the *hash* of a refresh token, so a stolen

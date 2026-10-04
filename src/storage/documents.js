@@ -8,6 +8,7 @@
 import { db, newId } from './db';
 import { requestPersistentStorage } from './quota';
 import { queueDelete, queueUpsert } from '../sync/metadata';
+import { queueBlobDelete, queueBlobUpload } from '../sync/blobs';
 import { assertCanCreateDocument } from '../plans/limits';
 
 /** The Create document screen asks for a type; My documents filters by category. */
@@ -87,6 +88,7 @@ export async function updateDocument(id, changes) {
   // document, and the queue is drained on a debounce, so a long writing
   // session is still one small request every couple of seconds at most.
   queueUpsert(id);
+  if ('content' in changes) queueBlobUpload(id);
   return result;
 }
 
@@ -240,4 +242,5 @@ export async function deleteDocument(id) {
     await db.documents.delete(id);
   });
   queueDelete(id); // other devices need to hear that it went
+  queueBlobDelete(id);
 }

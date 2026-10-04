@@ -60,6 +60,23 @@ db.version(3).stores({
   shareKeys: 'docId',
 });
 
+/**
+ * Version 4 — encrypted sync bookkeeping. `blobQueue` holds documents whose
+ * encrypted copy needs uploading; `blobMeta` remembers the server's version of
+ * each document's encrypted copy, so an upload can say what it is based on.
+ */
+db.version(4).stores({
+  documents: 'id, folderId, category, updatedAt',
+  folders: 'id, parentId, name',
+  versions: 'id, docId, createdAt',
+  settings: 'key',
+  syncQueue: 'id, queuedAt',
+  remoteDocs: 'id, deviceUpdatedAt',
+  shareKeys: 'docId',
+  blobQueue: 'id, queuedAt',
+  blobMeta: 'docId',
+});
+
 /** An id that also works on http:// LAN addresses, where crypto.randomUUID is missing. */
 export function newId() {
   if (window.crypto?.randomUUID) return window.crypto.randomUUID();

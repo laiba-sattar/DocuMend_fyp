@@ -50,6 +50,7 @@ import { navigate } from '../router';
 import { TEMPLATES } from '../engine/fallback';
 import { CHECKS, KIND_LABELS } from '../engine/checks';
 import { deleteNliModels, nliModelBytes } from '../engine/nliModelCache';
+import EncryptedSyncCard from '../components/EncryptedSyncCard';
 import { usePreference } from '../settings/preferences';
 import { formatBytes, formatPercent, getStorageReport, wipeAllData } from '../storage/quota';
 import './settings.css';
@@ -268,6 +269,7 @@ export default function Settings() {
           {/* ================================================== TAB 1: ACCOUNT */}
           {activeTab === 'account' && (
             <div className="set-v2-panel set-v2-fade-in">
+              <EncryptedSyncCard />
               <div className="set-v2-card-glass">
                 <div className="set-v2-profile-card">
                   <div className="set-v2-avatar-badge">

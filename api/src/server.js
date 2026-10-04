@@ -20,6 +20,7 @@ import authRoutes from './routes/auth.js';
 import firebaseRoutes from './routes/firebase.js';
 import documentRoutes from './routes/documents.js';
 import signalRoutes from './routes/signal.js';
+import vaultRoutes from './routes/vault.js';
 
 const PORT = Number(process.env.PORT ?? 4000);
 const ORIGINS = (process.env.CORS_ORIGIN ?? 'http://localhost:5173').split(',').map((origin) => origin.trim());
@@ -60,6 +61,7 @@ await app.register(authRoutes);
 await app.register(firebaseRoutes);    // Continue with Google, and email links
 await app.register(documentRoutes);
 await app.register(signalRoutes);      // P2P sync's signaling relay — no account needed
+await app.register(vaultRoutes);       // encrypted sync: ciphertext and wrapped keys only
 
 /** One shape for every error, so the app never has to guess. */
 app.setErrorHandler((error, request, reply) => {

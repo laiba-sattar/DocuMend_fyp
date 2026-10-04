@@ -55,11 +55,21 @@ export default async function firebaseRoutes(app) {
       return reply.code(401).send({ error: 'no_email', message: 'That account has no email address.' });
     }
 
-    // Known Firebase user, or the same email from an earlier password sign-up:
-    // both are the same person, so the accounts are joined rather than doubled.
-    let user = await prisma.user.findFirst({
-      where: { OR: [{ firebaseUid: identity.uid }, { email: identity.email }] },
-    });
+    // Only a verified email may claim an account. An unverified address could
+    // belong to anyone, so linking to (or creating under) it would let someone
+    // else's account be taken over.
+    let user = await prisma.user.findUnique({ where: { firebaseUid: identity.uid } });
+
+    if (!user) {
+      if (!identity.emailVerified) {
+        return reply.code(403).send({ error: 'email_not_verified', message: 'Verify this email address with its provider first, then sign in again.' });
+      }
+      const sameEmail = await prisma.user.findUnique({ where: { email: identity.email } });
+      if (sameEmail && sameEmail.firebaseUid && sameEmail.firebaseUid !== identity.uid) {
+        return reply.code(409).send({ error: 'account_conflict', message: 'That email is already linked to a different sign-in.' });
+      }
+      user = sameEmail;
+    }
 
     if (user) {
       user = await prisma.user.update({
