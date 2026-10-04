@@ -7,7 +7,7 @@ import {
   FolderPlus,
   Info,
   ShieldCheck,
-  Sparkles,
+  Sparkles, 
   X,
 } from 'lucide-react';
 import {
