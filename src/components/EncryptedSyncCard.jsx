@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { CheckCircle2, Cloud, Copy, Lock, Unlock } from 'lucide-react';
 import { lockSync, setUpSync, unlockSync, vaultStatus } from '../sync/vaultSetup';
+import { getVaultKey, subscribeVaultKey } from '../storage/vaultSession';
 
 /**
  * Settings → Account: turns encrypted sync on, unlocks it on this device, and
@@ -17,13 +18,18 @@ export default function EncryptedSyncCard() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
 
+  // Reactive, not just a one-time check: a refresh can restore the vault key
+  // a moment after this card has already mounted (storage/vaultSession.js),
+  // and the card should flip to "active" the instant that happens, not stay
+  // stuck on "locked" until the reader does something to re-trigger a check.
+  const vaultKey = useSyncExternalStore(subscribeVaultKey, getVaultKey);
   useEffect(() => {
     let alive = true;
     vaultStatus()
       .then((value) => { if (alive) setStatus(value); })
       .catch(() => { if (alive) setStatus('unavailable'); });
     return () => { alive = false; };
-  }, []);
+  }, [vaultKey]);
 
   const run = async (action) => {
     setBusy(true);
@@ -39,7 +45,7 @@ export default function EncryptedSyncCard() {
 
   const handleSetUp = (event) => {
     event.preventDefault();
-    if (passphrase !== confirm) return setMessage('The two passphrases do not match.');
+    if (passphrase !== confirm) return setMessage("Those two passwords don't match.");
     run(async () => {
       const code = await setUpSync(passphrase);
       setRecoveryCode(code);
@@ -59,15 +65,15 @@ export default function EncryptedSyncCard() {
       } catch (error) {
         if (useRecovery && error?.message?.includes('right format')) throw error;
         throw new Error(useRecovery
-          ? 'That recovery code did not unlock the vault.'
-          : 'That passphrase did not unlock the vault.');
+          ? "That backup code didn't work."
+          : "That password didn't work.");
       }
     });
   };
 
   const copyCode = () => {
     navigator.clipboard?.writeText(recoveryCode);
-    setMessage('Recovery code copied.');
+    setMessage('Backup code copied.');
   };
 
   return (
@@ -76,11 +82,12 @@ export default function EncryptedSyncCard() {
         <div className="set-v2-diag-title-wrap">
           <Cloud size={18} className="set-v2-accent-icon" />
           <div>
-            <h4>Encrypted sync</h4>
+            <h4>Sync across devices</h4>
             <p>
-              Open your documents on another device. Text is encrypted here first, so the server
-              only ever stores unreadable data. Lose the passphrase and the recovery code, and the
-              text cannot be recovered.
+              Open your documents on your other devices. Your text is locked with a password only
+              you know before it ever leaves this one — nobody else, including us, can read it.
+              That also means if you lose both your password and your backup code, it's gone for
+              good.
             </p>
           </div>
         </div>
@@ -92,7 +99,9 @@ export default function EncryptedSyncCard() {
       {recoveryCode && (
         <div className="set-v2-form">
           <p className="set-v2-field-note">
-            This is your recovery code. It is shown only now. Save it somewhere safe.
+            This is your backup code — it gets you back in if you ever forget your password. It's
+            shown only this once, so save it somewhere safe now (a notes app or password manager
+            works well).
           </p>
           <code className="set-v2-field-note" style={{ wordBreak: 'break-all', fontSize: 15 }}>{recoveryCode}</code>
           <div className="set-v2-mt-20">
@@ -102,7 +111,7 @@ export default function EncryptedSyncCard() {
           </div>
           <label className="set-v2-mt-20" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <input type="checkbox" checked={savedCode} onChange={(e) => setSavedCode(e.target.checked)} />
-            I have saved this recovery code
+            I've saved this backup code
           </label>
           <div className="set-v2-mt-20">
             <button
@@ -120,20 +129,20 @@ export default function EncryptedSyncCard() {
       {!recoveryCode && status === 'none' && (
         <form className="set-v2-form" onSubmit={handleSetUp}>
           <div className="set-v2-input-field">
-            <label htmlFor="vault-pass">Choose a passphrase (12+ characters)</label>
+            <label htmlFor="vault-pass">Create a sync password (12+ characters)</label>
             <div className="set-v2-input-shell">
               <input id="vault-pass" type="password" autoComplete="new-password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} />
             </div>
           </div>
           <div className="set-v2-input-field set-v2-mt-20">
-            <label htmlFor="vault-confirm">Repeat the passphrase</label>
+            <label htmlFor="vault-confirm">Confirm password</label>
             <div className="set-v2-input-shell">
               <input id="vault-confirm" type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
             </div>
           </div>
           <div className="set-v2-mt-20">
             <button type="submit" className="set-v2-primary-btn" disabled={busy || !passphrase || !confirm}>
-              <Lock size={14} /> {busy ? 'Setting up…' : 'Turn on encrypted sync'}
+              <Lock size={14} /> {busy ? 'Turning on…' : 'Turn on sync'}
             </button>
           </div>
         </form>
@@ -141,9 +150,9 @@ export default function EncryptedSyncCard() {
 
       {!recoveryCode && status === 'locked' && (
         <form className="set-v2-form" onSubmit={handleUnlock}>
-          <p className="set-v2-field-note">Encrypted sync is on for this account, but this device is locked.</p>
+          <p className="set-v2-field-note">Sync is already set up for your account — unlock it on this device to use it here too.</p>
           <div className="set-v2-input-field set-v2-mt-20">
-            <label htmlFor="vault-secret">{useRecovery ? 'Recovery code' : 'Passphrase'}</label>
+            <label htmlFor="vault-secret">{useRecovery ? 'Backup code' : 'Sync password'}</label>
             <div className="set-v2-input-shell">
               <input
                 id="vault-secret"
@@ -159,7 +168,7 @@ export default function EncryptedSyncCard() {
               <Unlock size={14} /> {busy ? 'Unlocking…' : 'Unlock'}
             </button>
             <button type="button" className="set-v2-secondary-btn" onClick={() => { setUseRecovery((v) => !v); setSecret(''); setMessage(''); }}>
-              {useRecovery ? 'Use passphrase instead' : 'Use recovery code instead'}
+              {useRecovery ? 'Use password instead' : "Forgot your password? Use your backup code"}
             </button>
           </div>
         </form>
@@ -167,7 +176,7 @@ export default function EncryptedSyncCard() {
 
       {!recoveryCode && status === 'unlocked' && (
         <div className="set-v2-form">
-          <p className="set-v2-field-note">Encrypted sync is active on this device.</p>
+          <p className="set-v2-field-note">Sync is on for this device.</p>
           <div className="set-v2-mt-20">
             <button
               type="button"

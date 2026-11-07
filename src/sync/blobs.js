@@ -130,6 +130,51 @@ export async function pullBlob(id) {
 
 /**
  * On a device that has never seen a document's text, creates the local record
+ * from the account's metadata (if it is not here yet) and fills in the text.
+ * Shared by `pullMissingBlobs` (every remote document, run right after
+ * unlock) and `pullRemoteDocument` (one document, on demand — e.g. MyDocuments
+ * opening a card for a document that only exists on another device so far).
+ */
+async function materializeAndPull(row) {
+  const local = await db.documents.get(row.id);
+  if (local?.content) return;
+  // A placeholder row is only created so `pullBlob`'s `db.documents.update`
+  // has something to write into — it is not a real document until the text
+  // actually arrives. If the fetch fails, remove it again rather than leaving
+  // an empty record behind: a document that merely exists but has no content
+  // looks exactly like a real empty document to the rest of the app, which
+  // would then stop treating this id as "still on another device."
+  const createdPlaceholder = !local;
+  if (createdPlaceholder) {
+    const when = new Date(row.deviceUpdatedAt).getTime();
+    await db.documents.put({
+      id: row.id,
+      title: row.title,
+      type: row.type ?? 'Other',
+      category: row.category ?? 'Draft',
+      folderId: row.folderId ?? 'root',
+      checks: [],
+      tint: 'sage',
+      format: 'DOCX',
+      source: 'created',
+      content: '',
+      wordCount: row.wordCount ?? 0,
+      status: 'draft',
+      syncStatus: 'synced',
+      createdAt: when,
+      updatedAt: when,
+    });
+  }
+  try {
+    await pullBlob(row.id);
+  } catch (error) {
+    if (createdPlaceholder) await db.documents.delete(row.id);
+    throw error;
+  }
+}
+
+/**
+ * On a device that has never seen a document's text, creates the local record
  * from the account's metadata and fills in the text. Only documents the
  * account lists in `remoteDocs` are considered.
  */
@@ -137,34 +182,25 @@ export async function pullMissingBlobs() {
   if (!getVaultKey()) return;
   const remote = await db.remoteDocs.toArray();
   for (const row of remote) {
-    const local = await db.documents.get(row.id);
-    if (local?.content) continue;
     try {
-      if (!local) {
-        const when = new Date(row.deviceUpdatedAt).getTime();
-        await db.documents.put({
-          id: row.id,
-          title: row.title,
-          type: row.type ?? 'Other',
-          category: row.category ?? 'Draft',
-          folderId: row.folderId ?? 'root',
-          checks: [],
-          tint: 'sage',
-          format: 'DOCX',
-          source: 'created',
-          content: '',
-          wordCount: row.wordCount ?? 0,
-          status: 'draft',
-          syncStatus: 'synced',
-          createdAt: when,
-          updatedAt: when,
-        });
-      }
-      await pullBlob(row.id);
+      await materializeAndPull(row);
     } catch (error) {
       if (!error?.status || error.status === 401) break;
     }
   }
+}
+
+/**
+ * Downloads one specific document that the account's metadata lists but this
+ * device has never pulled the text for — e.g. the reader opened a MyDocuments
+ * card for a document created on another device. Throws if the vault is
+ * locked or the id is not actually one of theirs.
+ */
+export async function pullRemoteDocument(id) {
+  if (!getVaultKey()) throw new Error('Unlock your vault first.');
+  const row = await db.remoteDocs.get(id);
+  if (!row) throw new Error('That document is not in this account.');
+  await materializeAndPull(row);
 }
 
 /**

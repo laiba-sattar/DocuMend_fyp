@@ -681,12 +681,10 @@ function MyDocuments() {
                   onDelete={removeDocument}
                   onToggleDone={toggleDone}
                   onOpen={() => {
-                    // A document that is only on the account cannot be opened
-                    // here: the server has its name, never its words.
-                    if (doc.elsewhere) {
-                      announce(`"${doc.title}" is on another device. Its text never left that computer.`);
-                      return;
-                    }
+                    // A document that only exists on the account so far (not
+                    // yet pulled to this device) still goes to the editor —
+                    // it decides whether to fetch it, unlocked, or ask the
+                    // reader to unlock sync first.
                     navigate(`/editor?doc=${doc.id}`);
                   }}
                 />

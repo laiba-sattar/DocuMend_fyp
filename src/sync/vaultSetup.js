@@ -32,10 +32,10 @@ export async function vaultStatus() {
  */
 export async function setUpSync(passphrase) {
   if (passphrase.length < MIN_PASSPHRASE) {
-    throw new Error(`Use a passphrase of at least ${MIN_PASSPHRASE} characters.`);
+    throw new Error(`Use a password of at least ${MIN_PASSPHRASE} characters.`);
   }
   if ((await vaultStatus()) !== 'none') {
-    throw new Error('Encrypted sync is already set up on this account.');
+    throw new Error('Sync is already set up for this account.');
   }
   const { recoveryCode, record } = await createVault(passphrase);
   await api.saveVault(record);

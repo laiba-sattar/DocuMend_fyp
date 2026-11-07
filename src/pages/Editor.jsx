@@ -14,7 +14,7 @@
  * The review panel shows real findings from the ODIE engine (src/engine),
  * which runs in a Web Worker and highlights what it finds on the page.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { EditorContent, useEditor, useEditorState } from '@tiptap/react';
 import { EditorState } from '@tiptap/pm/state';
 import './editor.css';
@@ -98,6 +98,10 @@ import {
 import { clockTime, countWords, pageLabel, pagesFor } from '../storage/format';
 import { createVersion, maybeAutoVersion } from '../storage/versions';
 import { createFolder, deleteFolder, listFolderOptions } from '../storage/folders';
+import { listRemote } from '../sync/metadata';
+import { pullRemoteDocument } from '../sync/blobs';
+import { vaultStatus } from '../sync/vaultSetup';
+import { getVaultKey, subscribeVaultKey } from '../storage/vaultSession';
 import { buildExtensions } from '../editor/extensions';
 import { findRanges, replaceAll } from '../editor/highlights';
 import { IMPORT_ACCEPT, IMPORT_EXTENSIONS, importFile } from '../editor/importers';
@@ -171,6 +175,14 @@ function Editor() {
   // --- editor state ---
   // Live document list from IndexedDB, newest first.
   const storedDocuments = useLiveQuery(listDocuments, []);
+  // Everything the account knows about, even documents this device has not
+  // pulled the text for yet — so a MyDocuments "another device" card can
+  // still be opened here instead of silently swapping to a different document.
+  const remoteDocuments = useLiveQuery(listRemote, []);
+  // Reactive, not just a function call: when a refresh restores the vault key
+  // a moment after mount (storage/vaultSession.js), this re-renders so the
+  // load effect below re-checks it instead of leaving a stale "locked" banner.
+  const vaultKey = useSyncExternalStore(subscribeVaultKey, getVaultKey);
   const documents = (storedDocuments ?? []).map((doc) => ({
     id: doc.id,
     title: doc.title,
@@ -211,6 +223,9 @@ function Editor() {
   const [findMatches, setFindMatches] = useState(0);
   const [replaceText, setReplaceText] = useState('');
   const [importing, setImporting] = useState(false);
+  // Set when `selectedId` names a document the account knows about but this
+  // device has not pulled yet: null | 'downloading' | 'locked' | 'none' | 'error'.
+  const [remoteNotice, setRemoteNotice] = useState(null);
 
   const loadedIdRef = useRef(null); // the document currently shown in the editor
   const dirtyIdRef = useRef(null); // set when that document has changes not yet written
@@ -351,12 +366,10 @@ function Editor() {
   useEffect(() => {
     if (!selectedId || !editor) return undefined;
     let cancelled = false;
-    getDocument(selectedId).then((doc) => {
+
+    const applyDoc = (doc) => {
       if (cancelled || editor.isDestroyed) return;
-      if (!doc) {
-        setSelectedId(null); // deleted or a bad link: fall back to the latest document
-        return;
-      }
+      setRemoteNotice(null);
       loadedIdRef.current = null; // loading is not an edit
       editor.commands.setContent(doc.content || '', { emitUpdate: false });
       // A fresh undo history, so Ctrl+Z can't bring back the previous document.
@@ -369,9 +382,52 @@ function Editor() {
       setWordCount(doc.wordCount ?? countWords(editor.getText()));
       refreshFind();
       window.history.replaceState({}, '', `/editor?doc=${doc.id}`);
+    };
+
+    getDocument(selectedId).then(async (doc) => {
+      if (cancelled || editor.isDestroyed) return;
+      if (doc) {
+        applyDoc(doc);
+        return;
+      }
+
+      // Not on this device. Still wait for the account's document list before
+      // deciding this is a bad link — it may simply not have arrived yet.
+      if (remoteDocuments === undefined) return;
+      const remoteRow = remoteDocuments.find((row) => row.id === selectedId);
+      if (!remoteRow) {
+        setRemoteNotice(null);
+        setSelectedId(null); // deleted or a bad link: fall back to the latest document
+        return;
+      }
+
+      // The account knows this document; it just lives on another device so
+      // far. Stop showing (and don't let edits land on) whatever was loaded
+      // before, while this resolves.
+      loadedIdRef.current = null;
+      editor.setEditable(false, false);
+      editor.commands.setContent('', { emitUpdate: false });
+
+      // With the vault unlocked that text can be fetched right now.
+      if (vaultKey) {
+        setRemoteNotice('downloading');
+        try {
+          await pullRemoteDocument(selectedId);
+          const pulled = await getDocument(selectedId);
+          if (cancelled || editor.isDestroyed) return;
+          if (pulled) applyDoc(pulled);
+        } catch {
+          if (!cancelled) setRemoteNotice('error');
+        }
+        return;
+      }
+
+      const status = await vaultStatus().catch(() => 'locked');
+      if (cancelled || editor.isDestroyed) return;
+      setRemoteNotice(status === 'none' ? 'none' : 'locked');
     });
     return () => { cancelled = true; };
-  }, [selectedId, editor, refreshFind]);
+  }, [selectedId, editor, refreshFind, remoteDocuments, vaultKey]);
 
   // With no documents at all, the page stays read-only until one is created.
   useEffect(() => {
@@ -1330,7 +1386,24 @@ function Editor() {
 
               <section className="editor-canvas-shell">
                 <div className="editor-paper-wrap">
-                  {noDocuments && (
+                  {remoteNotice ? (
+                    <div className="editor-empty-note" role="status">
+                      {remoteNotice === 'downloading' && <p>Bringing this document over from your other device…</p>}
+                      {remoteNotice === 'locked' && (
+                        <>
+                          <p>This document is on another device. Unlock sync to bring it here.</p>
+                          <button type="button" onClick={() => navigate('/settings')}>Unlock sync</button>
+                        </>
+                      )}
+                      {remoteNotice === 'none' && (
+                        <>
+                          <p>This document is on another device. Turn on sync to bring it here.</p>
+                          <button type="button" onClick={() => navigate('/settings')}>Turn on sync</button>
+                        </>
+                      )}
+                      {remoteNotice === 'error' && <p>Could not fetch this document. Check your connection and try again.</p>}
+                    </div>
+                  ) : noDocuments && (
                     <div className="editor-empty-note" role="status">
                       <p>You have no documents yet.</p>
                       <button type="button" onClick={() => setModal('document')}><Plus size={14} /> Create a document</button>

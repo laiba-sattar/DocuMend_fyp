@@ -13,7 +13,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { api, cachedUser, hasStoredSession } from '../api/client';
 import { startSync, stopSync } from '../sync/metadata';
-import { clearVaultKey } from '../storage/vaultSession';
+import { clearVaultKey, restoreVaultKey } from '../storage/vaultSession';
+import { startBlobSync } from '../sync/blobs';
 import { setCurrentTier } from '../plans/limits';
 
 const AuthContext = createContext(null);
@@ -89,10 +90,18 @@ export function AuthProvider({ children }) {
    * The document LIST follows the account; the text stays on this device.
    * Starting this here, rather than in a page, means it runs whichever screen
    * the reader happens to open first.
+   *
+   * `restoreVaultKey` brings back the vault key this same tab unlocked
+   * before a refresh (see storage/vaultSession.js) — without it, every
+   * reload would ask for the passphrase again even on the reader's own,
+   * single device. When it succeeds, blob sync picks up where it left off
+   * exactly as a fresh unlock would.
    */
   useEffect(() => {
-    if (status === 'signed-in') startSync();
-    else if (status === 'signed-out') { stopSync(); clearVaultKey(); }
+    if (status === 'signed-in') {
+      startSync();
+      restoreVaultKey().then((restored) => { if (restored) startBlobSync().catch(() => {}); });
+    } else if (status === 'signed-out') { stopSync(); clearVaultKey(); }
   }, [status]);
 
   const signIn = useCallback(async (credentials) => {
