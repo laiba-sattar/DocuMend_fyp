@@ -27,103 +27,69 @@ import {
   WorkspaceModal,
 } from '../components/WorkspaceChrome';
 import { workspaceRoutes } from '../components/workspace-nav';
-import { useTheme } from '../components/ThemeContext';
+import { useTheme } from '../components/theme';
 import { navigate } from '../router';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { listDocuments } from '../storage/documents';
+import { formatModified, pagesFor } from '../storage/format';
+import { formatBytes } from '../storage/quota';
 
-const mockDocuments = [
-  {
-    id: 'doc-1',
-    name: 'DocuMend_SRS_FYP_Final.docx',
-    category: 'Thesis',
-    pages: 42,
-    modified: '2m ago',
-    type: 'DOCX',
-    status: 'clean',
-    statusLabel: 'CLEAN',
-    statusDetail: 'AST Verified · 0 Contradictions',
-    icon: FileCode2,
-    size: '1.4 MB',
-    tone: 'mint',
-  },
-  {
-    id: 'doc-2',
-    name: 'Research_Paper_EdgeAI_Draft3.docx',
-    category: 'Proposals',
-    pages: 28,
-    modified: '1h ago',
-    type: 'DOCX',
-    status: 'issues',
-    statusLabel: '3 ISSUES',
-    statusDetail: '2 Citation warnings · 1 Redundancy',
-    icon: FileSpreadsheet,
-    size: '890 KB',
-    tone: 'gold',
-  },
-  {
-    id: 'doc-3',
-    name: 'Quarterly_Report_Q2_2026.docx',
-    category: 'Reports',
-    pages: 15,
-    modified: 'Yesterday',
-    type: 'DOCX',
-    status: 'clean',
-    statusLabel: 'CLEAN',
-    statusDetail: 'Validated Layout structure',
-    icon: FileText,
-    size: '520 KB',
-    tone: 'mint',
-  },
-  {
-    id: 'doc-4',
-    name: 'Legal_Contract_NDA_v2.docx',
-    category: 'Legal',
-    pages: 8,
-    modified: '2d ago',
-    type: 'DOCX',
-    status: 'conflict',
-    statusLabel: '1 CONFLICT',
-    statusDetail: 'Clause §4.1 contradicts Exhibit B',
-    icon: Scale,
-    size: '340 KB',
-    tone: 'coral',
-  },
-  {
-    id: 'doc-5',
-    name: 'Thesis_Chapter5_Methodology.docx',
-    category: 'Thesis',
-    pages: 35,
-    modified: '3d ago',
-    type: 'DOCX',
-    status: 'gap',
-    statusLabel: '1 GAP',
-    statusDetail: 'Missing IEEE empirical benchmark section',
-    icon: BookOpen,
-    size: '2.1 MB',
-    tone: 'amber',
-  },
-  {
-    id: 'doc-6',
-    name: 'Project_Proposal_v1.docx',
-    category: 'Proposals',
-    pages: 12,
-    modified: '5d ago',
-    type: 'DOCX',
-    status: 'clean',
-    statusLabel: 'CLEAN',
-    statusDetail: 'Zero formatting fractures',
-    icon: FileCheck2,
-    size: '480 KB',
-    tone: 'mint',
-  },
-];
+const ICON_BY_TYPE = {
+  Thesis: BookOpen,
+  Legal: Scale,
+  Report: FileSpreadsheet,
+  'Research paper': FileCode2,
+  Other: FileCheck2,
+};
 
-const categoryFilters = [
-  { id: 'all', label: 'All', count: 12 },
-  { id: 'Thesis', label: 'Thesis', count: 4 },
-  { id: 'Legal', label: 'Legal', count: 3 },
-  { id: 'Reports', label: 'Reports', count: 3 },
-  { id: 'Proposals', label: 'Proposals', count: 2 },
-];
+const TONE_BY_TINT = { sage: 'mint', gold: 'gold', saffron: 'gold', coral: 'coral', lavender: 'amber', sky: 'amber' };
+
+/**
+ * What the engine found in this document, as one badge.
+ *
+ * Every card used to be a hardcoded "NOT CHECKED YET", which made the other
+ * four badge designs below unreachable — a whole health display that could
+ * only ever show one state, for a feature the page did not have. The editor
+ * records its findings on the document now (`setDocumentIssues`), so the
+ * badge can say which kind of trouble it is, and the worst kind wins:
+ * a sentence that contradicts another is a bigger problem than a missing
+ * heading, which is bigger than a repeated line.
+ */
+function healthOf(doc) {
+  if (!doc.issuesCheckedAt) {
+    return { status: 'unchecked', label: 'NOT CHECKED YET' };
+  }
+  const total = doc.issueCount ?? 0;
+  if (!total) return { status: 'clean', label: 'NO ISSUES' };
+
+  const kinds = doc.issueKinds ?? {};
+  const suffix = total === 1 ? '1 ISSUE' : `${total} ISSUES`;
+  if (kinds.contradiction) return { status: 'conflict', label: suffix };
+  if (kinds.structure) return { status: 'gap', label: suffix };
+  return { status: 'issues', label: suffix };
+}
+
+/** A stored document, shaped for the cards below. */
+function toCard(doc) {
+  const words = doc.wordCount ?? 0;
+  const health = healthOf(doc);
+  return {
+    id: doc.id,
+    name: doc.title,
+    category: doc.type ?? 'Other',
+    pages: pagesFor(words),
+    modified: formatModified(doc.updatedAt),
+    type: doc.format ?? 'DOCX',
+    status: health.status,
+    statusLabel: health.label,
+    statusDetail: doc.issuesCheckedAt
+      ? `${words.toLocaleString()} words · checked ${formatModified(doc.issuesCheckedAt)}`
+      : `${words.toLocaleString()} words · open it to run the checks`,
+    icon: ICON_BY_TYPE[doc.type] ?? FileText,
+    size: formatBytes(new Blob([doc.content ?? '']).size),
+    tone: TONE_BY_TINT[doc.tint] ?? 'mint',
+  };
+}
 
 export default function Edit() {
   const { darkMode, toggleDarkMode } = useTheme();
@@ -139,7 +105,19 @@ export default function Edit() {
   // Page interactive state
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
-  const [selectedDocId, setSelectedDocId] = useState('doc-1');
+  const [selectedDocId, setSelectedDocId] = useState(null);
+
+  // Real documents from IndexedDB.
+  const storedDocuments = useLiveQuery(listDocuments, []);
+  const documents = useMemo(() => (storedDocuments ?? []).map(toCard), [storedDocuments]);
+  const categoryFilters = useMemo(() => {
+    const counts = {};
+    documents.forEach((doc) => { counts[doc.category] = (counts[doc.category] ?? 0) + 1; });
+    return [
+      { id: 'all', label: 'All', count: documents.length },
+      ...Object.entries(counts).map(([id, count]) => ({ id, label: id, count })),
+    ];
+  }, [documents]);
 
   const notify = (msg) => {
     setToast(msg);
@@ -147,13 +125,13 @@ export default function Edit() {
   };
 
   const selectedDoc = useMemo(
-    () => mockDocuments.find((doc) => doc.id === selectedDocId) || mockDocuments[0],
-    [selectedDocId]
+    () => documents.find((doc) => doc.id === selectedDocId) ?? documents[0] ?? null,
+    [documents, selectedDocId]
   );
 
   const filteredDocs = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return mockDocuments.filter((doc) => {
+    return documents.filter((doc) => {
       const matchCat =
         selectedCategory === 'all' || doc.category === selectedCategory;
       const matchSearch =
@@ -163,7 +141,7 @@ export default function Edit() {
         doc.statusLabel.toLowerCase().includes(q);
       return matchCat && matchSearch;
     });
-  }, [searchQuery, selectedCategory]);
+  }, [documents, searchQuery, selectedCategory]);
 
   const selectNav = (label) => {
     const route = workspaceRoutes?.[label];
@@ -186,10 +164,11 @@ export default function Edit() {
   };
 
   const handleOpenEditor = () => {
-    notify(`Opening "${selectedDoc.name}" in local studio...`);
-    window.setTimeout(() => {
-      navigate('/editor');
-    }, 350);
+    if (!selectedDoc) {
+      notify('Create a document first.');
+      return;
+    }
+    navigate(`/editor?doc=${selectedDoc.id}`);
   };
 
   return (
@@ -315,7 +294,7 @@ export default function Edit() {
           {/* Documents Grid */}
           <section className="edit-cards-grid" aria-label="Available Documents">
             {filteredDocs.map((doc) => {
-              const isSelected = selectedDocId === doc.id;
+              const isSelected = selectedDoc?.id === doc.id;
               const IconComponent = doc.icon;
 
               return (
@@ -368,7 +347,7 @@ export default function Edit() {
 
                   {/* Card Footer */}
                   <div className="edit-card-meta">
-                    <span>{doc.pages} pages · {doc.size}</span>
+                    <span>{doc.pages} {doc.pages === 1 ? 'page' : 'pages'} · {doc.size}</span>
                     <span className="edit-meta-dot">•</span>
                     <span>{doc.modified}</span>
                   </div>
@@ -400,12 +379,14 @@ export default function Edit() {
             <div className="edit-action-footer-inner">
               <div className="edit-action-left">
                 <span className="edit-action-label">Selected Document:</span>
-                <strong className="edit-action-filename" title={selectedDoc.name}>
-                  {selectedDoc.name}
+                <strong className="edit-action-filename" title={selectedDoc?.name}>
+                  {selectedDoc?.name ?? 'No documents yet'}
                 </strong>
-                <span className="edit-action-badge">
-                  {selectedDoc.pages} pages · {selectedDoc.statusLabel}
-                </span>
+                {selectedDoc && (
+                  <span className="edit-action-badge">
+                    {selectedDoc.pages} {selectedDoc.pages === 1 ? 'page' : 'pages'} · {selectedDoc.type}
+                  </span>
+                )}
               </div>
 
               <div className="edit-action-right">

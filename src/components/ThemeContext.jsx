@@ -1,13 +1,5 @@
-import { createContext, useContext, useEffect, useState } from 'react';
-
-// Default initial values taake kabhi bhi context undefined na ho
-const defaultThemeState = {
-  darkMode: false,
-  setDarkMode: () => {},
-  toggleDarkMode: () => {},
-};
-
-const ThemeContext = createContext(defaultThemeState);
+import { useEffect, useState } from 'react';
+import { ThemeContext } from './theme';
 
 export function ThemeProvider({ children }) {
   const [darkMode, setDarkMode] = useState(() => {
@@ -44,10 +36,4 @@ export function ThemeProvider({ children }) {
       {children}
     </ThemeContext.Provider>
   );
-}
-
-// CRASH-PROOF HOOK: Yeh kabhi error throw nahi karega
-export function useTheme() {
-  const context = useContext(ThemeContext);
-  return context || defaultThemeState;
 }

@@ -1,0 +1,72 @@
+/* social-sign-in.css — the Google and Email buttons under the sign-in form.
+   The login and sign-up screens keep their own cream look whatever the app's
+   dark mode says, so nothing here follows .dash-dark. */
+
+.social-signin { display: grid; gap: 10px; }
+
+.social-signin-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/* Both halves share the row equally and line up with the form above. */
+.social-signin-row > button {
+  flex: 1 1 0;
+  min-width: 150px;
+  justify-content: center;
+}
+
+/* The "send me a link" row reads as one field with a button, not a box
+   pasted on top of the page. */
+.social-email-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.social-email-form label { flex: 1 1 200px; }
+
+.social-email-form input {
+  width: 100%;
+  height: 46px;
+  border: 1px solid #e2d8c7;
+  border-radius: 12px;
+  padding: 0 14px;
+  background: #fff;
+  color: #2b3a33;
+  font-family: inherit;
+  font-size: 14px;
+}
+.social-email-form input::placeholder { color: #a9a094; }
+.social-email-form input:focus {
+  border-color: #c68b32;
+  outline: 2px solid rgba(198, 139, 50, .18);
+  outline-offset: 0;
+}
+
+.social-email-form button {
+  height: 46px;
+  border: 1px solid #234436;
+  border-radius: 12px;
+  padding: 0 20px;
+  background: #234436;
+  color: #fdfaf3;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s ease;
+}
+.social-email-form button:hover:not(:disabled) { background: #2f5a46; }
+.social-email-form button:disabled { opacity: .5; cursor: not-allowed; }
+
+/* One quiet line of explanation under the field: always its own row. */
+.social-email-note {
+  flex: 1 1 100%;
+  margin: 0;
+  color: #8b8478;
+  font-size: 12.5px;
+  line-height: 1.5;
+}

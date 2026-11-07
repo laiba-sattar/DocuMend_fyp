@@ -10,6 +10,8 @@
  * `continueWith` to a real API / OAuth provider when the backend exists.
  */
 import { useState } from "react";
+import { useAuth } from "../components/AuthContext";
+import { SocialSignIn } from "../components/SocialSignIn";
 import {
   ArrowLeft,
   ArrowRight,
@@ -80,43 +82,6 @@ function DocumentArtwork() {
   );
 }
 
-// Brand logos for the social buttons. Both are `aria-hidden` because the
-// button's own text ("Google" / "Facebook") already names it for screen
-// readers -- announcing the logo too would just repeat it.
-function GoogleIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        fill="#4285F4"
-        d="M21.8 12.2c0-.7-.1-1.4-.2-2H12v3.8h5.5a4.7 4.7 0 0 1-2 3.1v2.6h3.2c1.9-1.7 3.1-4.3 3.1-7.5z"
-      />
-      <path
-        fill="#34A853"
-        d="M12 22c2.7 0 5-.9 6.7-2.3l-3.2-2.6c-.9.6-2.1.9-3.5.9-2.7 0-5-1.8-5.8-4.3H2.9v2.7A10.1 10.1 0 0 0 12 22z"
-      />
-      <path
-        fill="#FBBC05"
-        d="M6.2 13.7a6 6 0 0 1 0-3.4V7.6H2.9a10.1 10.1 0 0 0 0 8.8l3.3-2.7z"
-      />
-      <path
-        fill="#EA4335"
-        d="M12 6c1.5 0 2.8.5 3.8 1.5l2.9-2.9C17 2.9 14.7 2 12 2a10.1 10.1 0 0 0-9.1 5.6l3.3 2.7C7 7.8 9.3 6 12 6z"
-      />
-    </svg>
-  );
-}
-
-function FacebookIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        fill="#1877F2"
-        d="M22 12a10 10 0 1 0-11.6 9.9v-7H7.9V12h2.5V9.8c0-2.5 1.5-3.9 3.8-3.9 1.1 0 2.2.2 2.2.2v2.4h-1.2c-1.2 0-1.6.7-1.6 1.5V12h2.7l-.4 2.9h-2.3v7A10 10 0 0 0 22 12z"
-      />
-    </svg>
-  );
-}
-
 export default function SignUp() {
   const [form, setForm] = useState(initialForm);           // current field values
   const [showPassword, setShowPassword] = useState(false); // password shown as plain text?
@@ -127,12 +92,18 @@ export default function SignUp() {
   // wall of red before they have typed anything.
   const [touched, setTouched] = useState({});
 
+  // The real "create account", from the API (S5).
+  const { signUp } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState("");
+
   // Every keystroke clears the previous outcome, so a stale "Account created"
   // banner can't linger while the user is editing their details.
   const updateField = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
     setSubmitted(false);
     setSocialMessage("");
+    setProblem("");
   };
 
   // Validation is derived from state rather than stored in it -- it is
@@ -163,7 +134,7 @@ export default function SignUp() {
     setTouched((current) => ({ ...current, [field]: true }));
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault(); // keep the browser from doing a full page reload
 
     // Second press, once the account exists: the button has become the way
@@ -192,19 +163,27 @@ export default function SignUp() {
       /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email) &&
       form.password.length >= 8;
 
-    if (isValid) {
-      setSubmitted(true); // replace with the real "create account" API call
+    if (!isValid || busy) return;
+
+    setBusy(true);
+    setProblem("");
+    try {
+      await signUp({
+        email: form.email.trim(),
+        name: `${form.firstName.trim()} ${form.lastName.trim()}`.trim(),
+        password: form.password,
+      });
+      setSubmitted(true);
+      window.setTimeout(() => navigate('/dashboard'), 700);
+    } catch (error) {
+      // "An account with this email already exists", and the like.
+      setProblem(error.message || 'The account could not be created.');
+    } finally {
+      setBusy(false);
     }
   };
 
-  // Placeholder for OAuth. The delay just fakes a round-trip so the button
-  // feels responsive; swap the whole body for a real provider redirect.
-  const continueWith = (provider) => {
-    setSocialMessage(`Continuing with ${provider}...`);
-    window.setTimeout(() => {
-      setSocialMessage(`${provider} is ready when you are.`);
-    }, 700);
-  };
+
 
   return (
     <main className="signup-shell">
@@ -372,8 +351,12 @@ export default function SignUp() {
 
             {/* Keeps the arrow in the success state too: the button is no
                 longer a passive "done" label, it now leads to the dashboard. */}
-            <button className="signup-submit" type="submit">
-              {submitted ? "You're all set" : "Create my account"}
+            {problem && (
+              <p className="signup-problem" role="alert">{problem}</p>
+            )}
+
+            <button className="signup-submit" type="submit" disabled={busy}>
+              {submitted ? "You're all set" : busy ? "Creating your account…" : "Create my account"}
               <ArrowRight size={16} />
             </button>
           </form>
@@ -381,24 +364,9 @@ export default function SignUp() {
           {/* ---------- Social sign-up options ---------- */}
           <div className="signup-divider">or continue with</div>
 
-          <div className="signup-socials">
-            <button
-              className="signup-social"
-              type="button"
-              onClick={() => continueWith("Google")}
-            >
-              <GoogleIcon />
-              Google
-            </button>
-            <button
-              className="signup-social"
-              type="button"
-              onClick={() => continueWith("Facebook")}
-            >
-              <FacebookIcon />
-              Facebook
-            </button>
-          </div>
+          {/* Google (no Firebase) and a one-time link by email — see
+              components/SocialSignIn.jsx */}
+          <SocialSignIn onMessage={setSocialMessage} buttonClass="signup-social" />
 
           {/* `aria-live` announces the status text whenever it changes. It
               stays in the DOM even when empty so the region is registered. */}

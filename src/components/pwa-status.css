@@ -1,0 +1,75 @@
+.pwa-stack {
+  position: fixed;
+  z-index: 200;
+  left: 50%;
+  bottom: 44px; /* clears the editor's status bar */
+  transform: translateX(-50%);
+  display: flex;
+  max-width: calc(100vw - 32px);
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.pwa-stack > * {
+  pointer-events: auto;
+}
+.pwa-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid #d7cdbb;
+  border-radius: 999px;
+  background: #fffaf0;
+  color: #4b6658;
+  font-size: 12px;
+  box-shadow: 0 6px 18px rgba(23, 45, 38, 0.14);
+}
+.pwa-chip-good {
+  border-color: #b9d3bd;
+  background: #eaf4ea;
+  color: #2f6b45;
+}
+.pwa-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px 10px 16px;
+  border-radius: 12px;
+  background: #172d26;
+  color: #f3eee3;
+  font-size: 12.5px;
+  box-shadow: 0 10px 26px rgba(23, 45, 38, 0.3);
+}
+.pwa-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 8px;
+  padding: 7px 12px;
+  background: #d8a53c;
+  color: #172d26;
+  font: 600 12px inherit;
+  cursor: pointer;
+}
+.pwa-primary:hover {
+  background: #e3b656;
+}
+.pwa-close {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #b9c9be;
+  cursor: pointer;
+}
+.pwa-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}

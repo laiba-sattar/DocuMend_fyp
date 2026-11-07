@@ -2034,3 +2034,58 @@ body:has(.dash-dark) {
 .dash-dark .history-doc-dropdown-item.is-selected .history-check-icon {
   color: #e8992e !important;
 }
+/* Real comparison: paragraphs that differ between the two versions */
+.history-diff-list {
+  display: grid;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  margin-block: 10px;
+  padding-right: 4px;
+}
+.history-diff-list p { margin: 0; line-height: 1.55; }
+.history-diff-removed {
+  background: rgba(200, 111, 82, 0.16);
+  border-left: 3px solid #c86f52;
+  padding: 4px 8px;
+  border-radius: 4px;
+  text-decoration: line-through;
+  text-decoration-color: rgba(200, 111, 82, 0.6);
+}
+.history-diff-added {
+  background: rgba(124, 170, 145, 0.2);
+  border-left: 3px solid #7caa91;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.history-diff-empty { opacity: 0.7; font-style: italic; }
+.history-no-versions {
+  margin: 12px 0 0 34px;
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+.history-preview-body { display: grid; gap: 10px; }
+.history-preview-body p, .history-preview-body h2, .history-preview-body h3 { margin: 0; }
+
+/* ==========================================================================
+   Deleting one version
+
+   The button in this slot used to be "More options" and opened nothing. It
+   deletes a version now, so it turns red on hover — the only control on this
+   page that destroys anything should not look like the three beside it that
+   do not.
+   ========================================================================== */
+
+.history-version-actions .history-more-button:hover,
+.history-version-actions .history-more-button:focus-visible {
+  border-color: rgba(222, 106, 80, .45);
+  background: rgba(222, 106, 80, .1);
+  color: #c9543b;
+}
+
+.dash-dark .history-version-actions .history-more-button:hover,
+.dash-dark .history-version-actions .history-more-button:focus-visible {
+  border-color: rgba(230, 130, 105, .5) !important;
+  background: rgba(230, 130, 105, .16) !important;
+  color: #f0a892 !important;
+}

@@ -100,21 +100,33 @@ Plus sage `#7caa91`, coral `#c86f52`, gold hover `#b67d18`.
 
 ## The editor
 
-`src/pages/Editor.jsx` uses `contentEditable` + `document.execCommand`.
-`execCommand` is deprecated but universally supported and needs no
-dependency. Two things that look like mistakes but are not:
+`src/pages/Editor.jsx` runs on **Tiptap 3**. The page creates one editor
+with `useEditor` and swaps documents into it with `setContent`, then resets
+the undo history so Ctrl+Z cannot reach the previous document.
 
-- Toolbar buttons use `onMouseDown` + `preventDefault`, so the editable
-  surface does not blur and lose the selection the command acts on.
-- The initial content is seeded once behind an `editorRef.current.dataset.ready`
-  guard, so a re-render cannot wipe what the user has typed.
+- Extensions: `src/editor/extensions.js`. StarterKit 3 already contains Link
+  and Underline -- adding them again registers them twice.
+- Toolbar buttons still call `runCommand('bold')` etc.; `runCommand` maps
+  those names to Tiptap commands. Buttons keep `onMouseDown` +
+  `preventDefault` so the editor keeps its selection.
+- Pressed-button state comes from `useEditorState` (Tiptap 3 no longer
+  re-renders the page on every keystroke).
+- On-screen marks (find matches now, engine issues later) are ProseMirror
+  decorations from `src/editor/highlights.js` -- they are never saved into
+  the document. The engine will call
+  `editor.commands.setHighlights('issues', ranges)`.
+- Import (.docx via mammoth, .pdf via pdf.js, .txt/.md) is
+  `src/editor/importers.js`; export (.docx via `docx`, PDF via the print
+  dialog, .txt) is `src/editor/exporters.js`. Both load their libraries on
+  demand.
+- Documents are stored as HTML (`editor.getHTML()`), which Version history
+  reads directly.
 
-Find-bar match counting happens in the input's `onChange`, not during render —
-the document text is in a ref, and reading a ref while rendering returns a
-stale value because mutating it schedules no re-render.
+## Data
 
-**TipTap is entirely unused.** Ten packages remain in `package.json` from an
-earlier version of the editor. Removing them is safe but has not been done.
+Everything is stored in the browser (IndexedDB via Dexie) through
+`src/storage/` -- pages never touch the database directly. See
+`docs/data-model.md`.
 
 ## Git
 
@@ -153,6 +165,5 @@ anything listed here is still live.
   the fix is to split it, as `workspace-nav.js` did).
 - Sign-up's social buttons still only show a message; there is no OAuth to
   wire them to yet.
-- Nothing persists except the upload screen's recent-documents list. Every
-  document, edit, folder and toggle lives in component state and is gone on
-  reload.
+- Settings, Share, Pricing, Features and the editor's review panel still use
+  sample data (the review panel becomes real with the analysis engine).

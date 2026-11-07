@@ -381,66 +381,63 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px 20px;
+  /* Slimmer than it was. With the search box gone there is less to hold, and
+     a tall empty bar reads as something missing. */
+  padding: 10px 20px;
   border-bottom: 1px solid var(--dash-line);
   background: var(--dash-card);
 }
 
-.dash-saved { display: flex; align-items: center; gap: 8px; font-size: 10px; color: var(--dash-ink-muted); }
-.dash-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--dash-sage); flex: none; }
-
-/* Workspace search */
-.dash-search { position: relative; display: block; width: 100%; max-width: 360px; }
-.dash-search > svg:first-of-type {
-  position: absolute;
-  left: 14px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: #789185;
-  pointer-events: none;
+/* Where you are: DocuMend › this page. */
+.dash-header-where {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--dash-ink-muted);
+  font-size: 11.5px;
 }
-.dash-search input {
-  width: 100%;
-  box-sizing: border-box;
-  height: 40px;
-  padding: 0 36px 0 40px;
-  border: 1px solid var(--dash-line);
-  border-radius: 12px;
-  background: var(--dash-card);
+.dash-header-where > svg { flex: none; opacity: .55; }
+
+.dash-crumb-root {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: .02em;
+  cursor: pointer;
+}
+.dash-crumb-root:hover { color: var(--dash-ink); text-decoration: underline; text-underline-offset: 3px; }
+
+.dash-crumb-here {
+  overflow: hidden;
   color: var(--dash-ink);
-  font: 500 11px inherit;
-  outline: none;
-  transition: border-color .2s ease, box-shadow .2s ease;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
-.dash-search input::placeholder { color: #9da99d; }
-.dash-search input:focus { border-color: var(--dash-gold); box-shadow: 0 0 0 3px rgba(216, 165, 60, .15); }
-.dash-search-clear {
-  position: absolute;
-  right: 10px;
-  top: 50%;
-  transform: translateY(-50%);
-  border: 0;
-  background: transparent;
-  border-radius: 4px;
-  padding: 4px;
-  color: #789185;
-  cursor: pointer;
-}
-.dash-search-clear:hover { background: var(--dash-raised); }
 
-.dash-header-actions { display: flex; align-items: center; gap: 10px; }
-
-.dash-icon-btn {
-  position: relative;
-  border: 0;
-  background: transparent;
-  border-radius: 12px;
-  padding: 10px;
-  color: var(--dash-ink-soft);
-  cursor: pointer;
-  transition: background-color .18s ease, color .18s ease;
+/* This rule was simply missing, which is why the bell and the profile chip
+   stacked on top of each other instead of sitting side by side. */
+.dash-header-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
 }
-.dash-icon-btn:hover { background: var(--dash-raised); color: var(--dash-ink); }
+
+/* The "All changes saved" badge used to live here. It was removed: it said
+   the same thing for ever, saved or not. */
+
+/* The notification switch. On, the bell is filled and carries a dot; off,
+   it is a struck-through bell — the two states are told apart by shape,
+   not only by colour. */
+.dash-bell.is-on { color: var(--dash-sage); }
+
+/* The workspace search box was removed; My documents has its own. */
+
+
 /* Unread marker on the bell. */
 .dash-icon-btn .dash-pip {
   position: absolute;
@@ -692,9 +689,11 @@
   .dash-topbar { display: flex; }
   .dash-main,
   .dash-main.is-wide { margin-left: 0; }
-  .dash-saved { display: none; }
   .dash-divider,
   .dash-profile-text { display: none; }
+  /* On a phone the crumb trail is noise; the page name alone is enough. */
+  .dash-crumb-root,
+  .dash-header-where > svg { display: none; }
 }
 
 @media (min-width: 1024px) {

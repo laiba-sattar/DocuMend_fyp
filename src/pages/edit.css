@@ -664,3 +664,8 @@
   background: #15241f !important;
   border-color: #243f35 !important;
 }
+/* Documents the engine has not scanned yet (issue badges arrive with S6) */
+.edit-badge-unchecked {
+  opacity: 0.75;
+  border: 1px dashed currentColor;
+}

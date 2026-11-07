@@ -1,18 +1,45 @@
+/**
+ * Features — what DocuMend can do, at `/features`.
+ *
+ * The old version of this page was the most confident fiction in the project.
+ * It advertised ten "engine modules" with invented specifications: a
+ * "60 FPS Canvas Renderer", "Hybrid AI Deep Reasoning" with "Cloud Inference",
+ * "Zero-Knowledge cloud sync", latencies of "< 50ms" and "16.6ms", and a live
+ * readout of "● 42ms runtime" that was simply typed into the markup. Eight of
+ * the ten were switched on, and each had a toggle that changed a number in
+ * this file and nothing else.
+ *
+ * What it says now comes from the code:
+ *
+ *   · the eight writing checks are read from engine/checks.js — the same list
+ *     the engine runs and the Settings page shows, and their switches are the
+ *     same real preference, so turning one off here turns it off everywhere;
+ *   · everything else is marked "Working now" or "Planned", where planned
+ *     means a section of the build plan that has not been written yet.
+ *
+ * A page that lists unbuilt work as finished is worse than no page: the first
+ * person to look for "Zero-Knowledge cloud sync" and not find it stops
+ * believing the other nine.
+ */
 import { useMemo, useState } from 'react';
 import {
   BookOpen,
-  Copy,
+  Cloud,
   Cpu,
-  Eye,
+  Download,
   FileCheck2,
+  FileInput,
+  History,
+  Laptop,
   Layers,
+  ListTree,
   Lock,
-  RotateCcw,
   Search,
-  ShieldAlert,
+  Smartphone,
   Sparkles,
-  Wand2,
-  Zap,
+  Type,
+  Users,
+  WifiOff,
 } from 'lucide-react';
 import {
   MobileDrawer,
@@ -22,244 +49,315 @@ import {
   WorkspaceModal,
 } from '../components/WorkspaceChrome';
 import { workspaceRoutes } from '../components/workspace-nav';
-import { useTheme } from '../components/ThemeContext';
+import { useTheme } from '../components/theme';
 import { navigate } from '../router';
+import { usePreference } from '../settings/preferences';
 import './features.css';
 
-const initialFeatureList = [
+/* ==========================================================================
+   What DocuMend actually does
+   ========================================================================== */
+
+/**
+ * The writing checks, grouped into the families a reader actually cares
+ * about rather than one card per rule — `engine/checks.js` has 26 individual
+ * rules, and listing every one made this page read as the same few ideas
+ * (spelling, structure, references…) repeated many times over. Settings
+ * still lists every rule individually, where per-rule control belongs; this
+ * page is the overview.
+ *
+ * Each family's switch is real: toggling it mutes or unmutes every rule in
+ * `checkIds` at once, through the same `mutedChecks` preference the editor
+ * reads.
+ */
+const CHECK_FAMILIES = [
   {
-    id: 'contradiction',
-    title: 'Contradiction detection',
-    badge: 'Core Engine',
-    latency: '< 50ms',
-    tier: 'Core',
-    category: 'Analysis',
-    description:
-      'ODIE WASM engine scans semantic and logical inconsistencies across sections in real-time with zero cloud dependency.',
-    icon: ShieldAlert,
-    enabled: true,
+    id: 'contradictions',
+    title: 'Catches contradictions',
+    checkIds: ['numbers', 'claims', 'nli-contradiction'],
+    description: 'Two sentences that disagree — different figures for the same thing, a claim stated and then denied, or, with the on-device model switched on, the same disagreement said in different words.',
+    icon: FileCheck2,
     tone: 'coral',
-    tech: 'Local WASM',
   },
   {
-    id: 'structural_gap',
-    title: 'Structural gap analysis',
-    badge: 'Template Sync',
-    latency: 'Instant',
-    tier: 'Core',
-    category: 'Structure',
-    description:
-      'Detects missing mandatory chapters, methodologies, or abstract sections mapped directly to IEEE, APA, and university templates.',
+    id: 'repetition',
+    title: 'Catches repeated sentences',
+    checkIds: ['repeat'],
+    description: 'A sentence that already said what an earlier one said.',
+    icon: Type,
+    tone: 'mint',
+  },
+  {
+    id: 'structure',
+    title: 'Checks the document’s structure',
+    checkIds: ['no-headings', 'missing-section', 'standard-name', 'empty-section', 'level-skip', 'duplicate-name', 'numbering'],
+    description: 'Missing or empty sections, skipped heading levels, duplicate headings, an unusual name for a standard section, and gaps in numbering — measured against the template for the document’s type.',
     icon: Layers,
-    enabled: true,
     tone: 'gold',
-    tech: 'Rule Parser',
   },
   {
-    id: 'self_plagiarism',
-    title: 'Self-plagiarism check',
-    badge: 'Offline DB',
-    latency: '120ms',
-    tier: 'Core',
-    category: 'Privacy',
-    description:
-      'Cross-compares drafts against your local IndexedDB workspace memory without uploading document tokens anywhere.',
-    icon: Copy,
-    enabled: true,
-    tone: 'mint',
-    tech: 'IndexedDB',
-  },
-  {
-    id: 'self_healing',
-    title: 'Self-healing repair',
-    badge: 'Auto-Patch',
-    latency: 'Realtime',
-    tier: 'Core',
-    category: 'Repair',
-    description:
-      'One-click intelligent replacement that patches grammar fractures, broken cross-references, and citation order.',
-    icon: Wand2,
-    enabled: true,
-    tone: 'mint',
-    tech: 'Local AST',
-  },
-  {
-    id: 'citation_val',
-    title: 'Citation validation',
-    badge: 'Cross-Ref',
-    latency: 'Online Async',
-    tier: 'Premium',
-    category: 'Citations',
-    description:
-      'Validates reference DOIs, author hierarchies, and year discrepancies against CrossRef and Semantic Scholar APIs.',
+    id: 'references',
+    title: 'Checks references and citations',
+    checkIds: ['reference-year', 'citation-missing', 'reference-uncited', 'reference-style', 'reference-order', 'reference-list-name', 'isbn', 'doi'],
+    description: 'A citation with no matching reference, a reference nothing cites, a reference list in the wrong order or under the wrong name, and invalid ISBNs or DOIs — plus style rules once APA, MLA or IEEE is chosen.',
     icon: BookOpen,
-    enabled: true,
     tone: 'blue',
-    tech: 'REST / SSL',
   },
   {
-    id: 'zk_cloud_sync',
-    title: 'Zero-Knowledge cloud sync',
-    badge: 'E2EE AES-256',
-    latency: 'Encrypted',
-    tier: 'Premium',
-    category: 'Privacy',
-    description:
-      'Client-side AES-GCM 256-bit encrypted blobs. The sync server stores blinded ciphertext without plaintext decryption keys.',
-    icon: Lock,
-    enabled: true,
-    tone: 'gold',
-    tech: 'WebCrypto',
-  },
-  {
-    id: 'visual_intel',
-    title: 'Visual intelligence & graphs',
-    badge: 'Interactive',
-    latency: 'GPU Accel',
-    tier: 'Premium',
-    category: 'Analysis',
-    description:
-      'Generates document argument tree graphs, semantic coherence heatmaps, and section weight balance meters.',
-    icon: Eye,
-    enabled: true,
-    tone: 'coral',
-    tech: 'Canvas 2D',
-  },
-  {
-    id: 'ai_fallback',
-    title: 'Hybrid AI Deep Reasoning',
-    badge: 'Online Assist',
-    latency: 'Streaming',
-    tier: 'Premium',
-    category: 'Analysis',
-    description:
-      'High-complexity semantic analysis fallback when local edge heuristics detect nuanced academic reasoning conflicts.',
-    icon: Sparkles,
-    enabled: true,
-    tone: 'gold',
-    tech: 'Cloud Inference',
-  },
-  {
-    id: 'live_diff',
-    title: 'Granular AST Version Diff',
-    badge: 'Snapshot',
-    latency: '< 10ms',
-    tier: 'Core',
-    category: 'Structure',
-    description:
-      'Tracks precise phrase deletions, sentence reordering, and modifier insertions at atomic document node levels.',
-    icon: RotateCcw,
-    enabled: false,
-    tone: 'blue',
-    tech: 'DOM Trees',
-  },
-  {
-    id: 'perf_budget',
-    title: '60 FPS Canvas Renderer',
-    badge: 'Ultra Fast',
-    latency: '16.6ms',
-    tier: 'Core',
-    category: 'Performance',
-    description:
-      'Virtualizes document scrolling and highlights with zero DOM lag on 100+ page long-form manuscripts.',
-    icon: Zap,
-    enabled: false,
+    id: 'punctuation',
+    title: 'Checks punctuation and spacing',
+    checkIds: ['extra-space', 'space-before-punctuation', 'missing-space-after-punctuation', 'repeated-punctuation', 'repeated-word'],
+    description: 'Doubled spaces, a space before a comma or full stop, punctuation running into the next word, a mark repeated past what is ever correct, and the same word typed twice in a row.',
+    icon: Type,
     tone: 'mint',
-    tech: 'Hardware Accel',
+  },
+  {
+    id: 'spelling',
+    title: 'Checks spelling',
+    checkIds: ['spelling-inconsistent', 'misspelled-word'],
+    description: 'A word spelled two different ways in the same document, and words not in the checker’s ten-thousand-word list, with suggested corrections.',
+    icon: FileCheck2,
+    tone: 'coral',
   },
 ];
 
+const checkCapabilities = CHECK_FAMILIES.map((family) => ({
+  id: `family-${family.id}`,
+  checkIds: family.checkIds,
+  title: family.title,
+  description: family.description,
+  group: 'Writing checks',
+  status: 'now',
+  where: 'Editor → Review panel',
+  icon: family.icon,
+  tone: family.tone,
+}));
+
+/** Everything else, each line something you can go and do right now — or not. */
+const otherCapabilities = [
+  {
+    id: 'import',
+    title: 'Open what you already have',
+    description: 'Word (.docx), plain text and Markdown files become editable documents, converted in your own browser. A PDF has no headings inside it, so save it as .docx first.',
+    group: 'Writing',
+    status: 'now',
+    where: 'Upload, or drop a file on the dashboard',
+    icon: FileInput,
+    tone: 'blue',
+  },
+  {
+    id: 'export',
+    title: 'Take it away again',
+    description: 'Export to Word or plain text, or print to PDF. No format you cannot get back out of.',
+    group: 'Writing',
+    status: 'now',
+    where: 'Editor → Export',
+    icon: Download,
+    tone: 'blue',
+  },
+  {
+    id: 'formatting',
+    title: 'A familiar editor',
+    description: 'Headings, bold and italic, lists, tables, alignment, indents, highlight, find and replace.',
+    group: 'Writing',
+    status: 'now',
+    where: 'Editor → Home ribbon',
+    icon: Type,
+    tone: 'mint',
+  },
+  {
+    id: 'outline',
+    title: 'The shape of the document',
+    description: 'Every heading in order, indented by level. Click one to jump to it.',
+    group: 'Writing',
+    status: 'now',
+    where: 'Editor → Structure tab',
+    icon: ListTree,
+    tone: 'gold',
+  },
+  {
+    id: 'versions',
+    title: 'Going back',
+    description: 'Versions are saved as you work and whenever you ask. Read an old one, or restore it.',
+    group: 'Writing',
+    status: 'now',
+    where: 'Version history',
+    icon: History,
+    tone: 'coral',
+  },
+  {
+    id: 'offline',
+    title: 'Works with the internet off',
+    description: 'The editor and every check run on this computer. Only signing in needs a connection.',
+    group: 'Privacy',
+    status: 'now',
+    where: 'Everywhere',
+    icon: WifiOff,
+    tone: 'mint',
+  },
+  {
+    id: 'local',
+    title: 'Your text stays on your device',
+    description: 'Documents are stored in this browser. The server is told a title, a date and a word count, and refuses anything more.',
+    group: 'Privacy',
+    status: 'now',
+    where: 'By design',
+    icon: Lock,
+    tone: 'gold',
+  },
+  {
+    id: 'account',
+    title: 'One account, any computer',
+    description: 'Sign in with Google or a one-time email link. Your document list follows you; the documents themselves do not.',
+    group: 'Account',
+    status: 'now',
+    where: 'Sign in',
+    icon: Laptop,
+    tone: 'blue',
+  },
+  {
+    id: 'plans',
+    title: 'Plans that mean something',
+    description: 'Basic keeps 10 documents and 10 automatic versions each; Premium removes the first limit and raises the second.',
+    group: 'Account',
+    status: 'now',
+    where: 'Pricing',
+    icon: Sparkles,
+    tone: 'gold',
+  },
+
+  /* ---- not written yet. Said plainly, not dressed up as a feature. ------- */
+  {
+    id: 'citations',
+    title: 'Looking references up online',
+    description: 'Checking each reference against CrossRef and Semantic Scholar, to confirm it exists and fill in a missing year or DOI. The style checks are built; this part is not.',
+    group: 'Planned',
+    status: 'planned',
+    where: 'Section S8 of the build plan',
+    icon: BookOpen,
+    tone: 'blue',
+  },
+  {
+    id: 'models',
+    title: 'Reading meaning, not just words',
+    description: 'A small language model running in the browser, to catch claims that disagree without repeating each other word for word. Off by default — it is a real download — turned on from Settings.',
+    group: 'Privacy',
+    status: 'now',
+    where: 'Settings → Checks',
+    icon: Cpu,
+    tone: 'coral',
+  },
+  {
+    id: 'encrypted-sync',
+    title: 'Encrypted sync',
+    description: 'A whole document opening on another computer, encrypted here first so the server only ever holds unreadable data.',
+    group: 'Planned',
+    status: 'planned',
+    where: 'Sections S3 and S9',
+    icon: Cloud,
+    tone: 'gold',
+  },
+  {
+    id: 'sharing',
+    title: 'Sharing and comments',
+    description: 'Sending a document to a supervisor and getting notes back, without either of you emailing a file around.',
+    group: 'Planned',
+    status: 'planned',
+    where: 'Section S9',
+    icon: Users,
+    tone: 'mint',
+  },
+  {
+    id: 'mobile',
+    title: 'On a phone',
+    description: 'The same workspace as an Android app, wrapped with Capacitor.',
+    group: 'Planned',
+    status: 'planned',
+    where: 'Section S10',
+    icon: Smartphone,
+    tone: 'blue',
+  },
+];
+
+const CAPABILITIES = [...checkCapabilities, ...otherCapabilities];
+
+const GROUPS = ['All', 'Writing checks', 'Writing', 'Privacy', 'Account', 'Planned'];
+
+/* ==========================================================================
+   The page
+   ========================================================================== */
+
 export default function Features() {
-  const [features, setFeatures] = useState(initialFeatureList);
   const [selectedFilter, setSelectedFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [toast, setToast] = useState('');
 
-  // Global Shared Theme Context
   const { darkMode, toggleDarkMode } = useTheme();
+  const [mutedChecks, setMutedChecks] = usePreference('mutedChecks');
+  const [privacyMode, setPrivacyMode] = usePreference('privacyMode');
 
-  // Workspace Chrome shell states
   const [activeNav, setActiveNav] = useState('Features');
-  const [privacyMode, setPrivacyMode] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebar, setMobileSidebar] = useState(false);
   const [modal, setModal] = useState(null);
 
-  const notify = (msg) => {
-    setToast(msg);
+  const notify = (message) => {
+    setToast(message);
     window.setTimeout(() => setToast(''), 2700);
   };
 
-  const toggleFeature = (id) => {
-    setFeatures((prev) =>
-      prev.map((f) => {
-        if (f.id === id) {
-          const newState = !f.enabled;
-          notify(`${f.title} ${newState ? 'enabled' : 'disabled'}`);
-          return { ...f, enabled: newState };
-        }
-        return f;
-      })
-    );
+  /**
+   * One family's switch controls every rule it covers at once. Turning it on
+   * means turning all of them on — a family partly on reads as off here, so
+   * the switch always has one obvious next state rather than a surprising one.
+   */
+  const toggleCheckFamily = (item) => {
+    const allOn = item.checkIds.every((id) => !mutedChecks.includes(id));
+    const muted = allOn
+      ? [...new Set([...mutedChecks, ...item.checkIds])]
+      : mutedChecks.filter((id) => !item.checkIds.includes(id));
+    setMutedChecks(muted);
+    notify(allOn
+      ? `The editor will stop flagging: ${item.title.toLowerCase()}.`
+      : `Back on: ${item.title.toLowerCase()}.`);
   };
 
-  const activeCount = useMemo(() => features.filter((f) => f.enabled).length, [features]);
+  const onCountOf = (item) => item.checkIds.length - item.checkIds.filter((id) => mutedChecks.includes(id)).length;
 
-  const filteredFeatures = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    return features.filter((f) => {
-      const matchesCategory =
-        selectedFilter === 'All' ||
-        (selectedFilter === 'Core' && f.tier === 'Core') ||
-        (selectedFilter === 'Premium' && f.tier === 'Premium') ||
-        f.category === selectedFilter;
+  const isOn = (item) => {
+    if (item.status !== 'now') return false;
+    if (!item.checkIds) return true;
+    return onCountOf(item) > 0;
+  };
 
-      const matchesSearch =
-        !q ||
-        f.title.toLowerCase().includes(q) ||
-        f.description.toLowerCase().includes(q) ||
-        f.tech.toLowerCase().includes(q);
+  const workingNow = useMemo(() => CAPABILITIES.filter((item) => item.status === 'now').length, []);
 
-      return matchesCategory && matchesSearch;
+  const filtered = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return CAPABILITIES.filter((item) => {
+      if (selectedFilter !== 'All' && item.group !== selectedFilter) return false;
+      if (!query) return true;
+      return `${item.title} ${item.description} ${item.where}`.toLowerCase().includes(query);
     });
-  }, [features, selectedFilter, searchQuery]);
+  }, [selectedFilter, searchQuery, mutedChecks]);
 
   const selectNav = (label) => {
     const route = workspaceRoutes?.[label];
-    if (route && label !== 'Features') {
-      navigate(route);
-      return;
-    }
+    if (route && label !== 'Features') return navigate(route);
     if (label === 'Dashboard') return navigate('/dashboard');
-    if (label === 'Editor') return navigate('/editor');
-    if (label === 'Subscription' || label === 'Pricing') return navigate('/pricing');
-    if (label === 'Version history') return navigate('/version');
-    if (label === 'Settings') return navigate('/settings');
-    if (label === 'Help and Guide') return navigate('/help');
-    if (label === 'Storage') return navigate('/storage');
-    if (label === 'Share Document') return navigate('/share');
-
     setActiveNav(label);
-    if (label !== 'Features') notify(`${label} view selected`);
     setMobileSidebar(false);
   };
 
   return (
-    <div className={`dash-shell ${darkMode ? 'dash-dark' : ''}`}>
-      <MobileTopbar
-        onMenu={() => setMobileSidebar(true)}
-        onThemeToggle={toggleDarkMode}
-        darkMode={darkMode}
-      />
+    <div className={`dash-shell ${darkMode ? 'dash-dark' : ''} ${privacyMode ? 'dash-private' : ''}`}>
+      <MobileTopbar onMenu={() => setMobileSidebar(true)} onThemeToggle={toggleDarkMode} darkMode={darkMode} />
 
       <Sidebar
         activeNav={activeNav}
         onNavigate={selectNav}
         privacyMode={privacyMode}
-        onPrivacyToggle={() => {
-          setPrivacyMode((prev) => !prev);
-          notify(`Privacy mode ${privacyMode ? 'paused' : 'enabled'}`);
-        }}
+        onPrivacyToggle={() => setPrivacyMode(!privacyMode)}
         darkMode={darkMode}
         onThemeToggle={toggleDarkMode}
         onLogout={() => setModal('logout')}
@@ -272,62 +370,53 @@ export default function Features() {
         onClose={() => setMobileSidebar(false)}
         activeNav={activeNav}
         onNavigate={selectNav}
-        onPrivacyToggle={() => setPrivacyMode((prev) => !prev)}
+        onPrivacyToggle={() => setPrivacyMode(!privacyMode)}
         onLogout={() => setModal('logout')}
       />
 
       <main className={`dash-main feat-main-area ${sidebarCollapsed ? 'is-wide' : ''}`}>
-        <WorkspaceHeader
-          search={searchQuery}
-          onSearchChange={setSearchQuery}
-          onAnnounce={notify}
-        />
+        <WorkspaceHeader onAnnounce={notify} />
 
         <div className="feat-container">
           <div className="feat-glow-orb feat-orb-1" aria-hidden="true" />
           <div className="feat-glow-orb feat-orb-2" aria-hidden="true" />
 
-          {/* Hero Banner */}
           <header className="feat-hero-header">
             <div className="feat-hero-text">
               <div className="feat-kicker">
                 <Cpu size={14} className="feat-kicker-icon" />
-                <span>Engine & Pipeline Control</span>
+                <span>What DocuMend can do</span>
               </div>
-              <h1>Platform Features</h1>
+              <h1>Everything here is either working, or labelled.</h1>
               <p>
-                Configure local WASM heuristics, neural checkers, and edge-privacy modules.
+                The writing checks below are the ones the engine really runs, and their
+                switches are the same ones on the Settings page. Anything still to be
+                built says so.
               </p>
             </div>
 
-            {/* Status Meter */}
+            {/* A real count, not a fixed "42ms runtime". */}
             <div className="feat-meter-card">
               <div className="feat-meter-info">
                 <span className="feat-meter-num">
-                  {activeCount}
-                  <small>/{features.length}</small>
+                  {workingNow}
+                  <small>/{CAPABILITIES.length}</small>
                 </span>
-                <span className="feat-meter-label">Active Modules</span>
+                <span className="feat-meter-label">working today</span>
               </div>
               <div className="feat-progress-track">
-                <div
-                  className="feat-progress-bar"
-                  style={{ width: `${(activeCount / features.length) * 100}%` }}
-                />
+                <div className="feat-progress-bar" style={{ width: `${(workingNow / CAPABILITIES.length) * 100}%` }} />
               </div>
               <div className="feat-meter-footer">
-                <span>
-                  <Zap size={12} /> Local-first pipeline
-                </span>
-                <span className="feat-latency-live">● 42ms runtime</span>
+                <span><Lock size={12} /> Runs on this computer</span>
+                <span>{CAPABILITIES.length - workingNow} still to build</span>
               </div>
             </div>
           </header>
 
-          {/* Filter Bar */}
           <div className="feat-filter-toolbar">
             <div className="feat-tabs" role="tablist">
-              {['All', 'Core', 'Premium', 'Analysis', 'Privacy'].map((tab) => (
+              {GROUPS.map((tab) => (
                 <button
                   key={tab}
                   type="button"
@@ -345,30 +434,31 @@ export default function Features() {
               <Search size={14} />
               <input
                 type="text"
-                placeholder="Search engine modules or tech stack..."
+                placeholder="Search what DocuMend does…"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(event) => setSearchQuery(event.target.value)}
               />
             </div>
           </div>
 
-          {/* Features Grid */}
-          <section className="feat-grid" aria-label="Engine Capabilities">
-            {filteredFeatures.map((item) => {
-              const IconComponent = item.icon;
+          <section className="feat-grid" aria-label="What DocuMend can do">
+            {filtered.map((item) => {
+              const Icon = item.icon;
+              const on = isOn(item);
+              const planned = item.status === 'planned';
               return (
                 <article
                   key={item.id}
-                  className={`feat-card feat-tone-${item.tone} ${item.enabled ? 'is-enabled' : 'is-disabled'}`}
+                  className={`feat-card feat-tone-${item.tone} ${on ? 'is-enabled' : 'is-disabled'}`}
                 >
                   <div className="feat-card-top">
                     <div className={`feat-icon-bubble feat-bubble-${item.tone}`}>
-                      <IconComponent size={20} strokeWidth={2.2} />
+                      <Icon size={20} strokeWidth={2.2} />
                     </div>
                     <div className="feat-badges-group">
-                      <span className="feat-tech-tag">{item.tech}</span>
-                      <span className={`feat-tier-pill feat-tier-${item.tier.toLowerCase()}`}>
-                        {item.tier}
+                      <span className="feat-tech-tag">{item.where}</span>
+                      <span className={`feat-tier-pill ${planned ? 'feat-tier-premium' : 'feat-tier-core'}`}>
+                        {planned ? 'Planned' : 'Working now'}
                       </span>
                     </div>
                   </div>
@@ -376,39 +466,41 @@ export default function Features() {
                   <div className="feat-card-body">
                     <div className="feat-title-row">
                       <h3>{item.title}</h3>
-                      <span className="feat-latency-pill">{item.latency}</span>
                     </div>
                     <p>{item.description}</p>
                   </div>
 
                   <div className="feat-card-footer">
                     <span className="feat-status-caption">
-                      {item.enabled ? (
-                        <span className="feat-status-active">
-                          <FileCheck2 size={13} /> Active on document
+                      {planned ? (
+                        <span className="feat-status-inactive">Not built yet</span>
+                      ) : item.checkIds ? (
+                        <span className={on ? 'feat-status-active' : 'feat-status-inactive'}>
+                          <FileCheck2 size={13} /> {onCountOf(item)}/{item.checkIds.length} checks on
                         </span>
                       ) : (
-                        <span className="feat-status-inactive">Inactive / Standby</span>
+                        <span className="feat-status-active"><FileCheck2 size={13} /> Ready to use</span>
                       )}
                     </span>
 
-                    <label
-                      className="feat-switch"
-                      aria-label={`Toggle ${item.title}`}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={item.enabled}
-                        onChange={() => toggleFeature(item.id)}
-                      />
-                      <span className="feat-slider" />
-                    </label>
+                    {/* Only the check families get a switch, because only they
+                        have something behind one. */}
+                    {item.checkIds && (
+                      <label className="feat-switch" onClick={(event) => event.stopPropagation()}>
+                        <span className="dash-sr">{item.title}</span>
+                        <input type="checkbox" checked={onCountOf(item) === item.checkIds.length} onChange={() => toggleCheckFamily(item)} />
+                        <span className="feat-slider" />
+                      </label>
+                    )}
                   </div>
                 </article>
               );
             })}
           </section>
+
+          {filtered.length === 0 && (
+            <p className="feat-empty-note">Nothing here matches that.</p>
+          )}
         </div>
       </main>
 
@@ -416,10 +508,7 @@ export default function Features() {
         mode={modal}
         onClose={() => setModal(null)}
         onSubmit={() => setModal(null)}
-        onLogout={() => {
-          setModal(null);
-          navigate('/');
-        }}
+        onLogout={() => { setModal(null); navigate('/'); }}
       />
 
       {toast && (

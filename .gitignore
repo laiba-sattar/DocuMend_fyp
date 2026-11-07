@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# The Rust engine's build output (rebuilt with wasm-pack, never committed)
+engine/target
+src/engine/pkg

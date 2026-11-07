@@ -36,7 +36,6 @@ import {
   MousePointer2,
   PanelRight,
   Phone,
-  ScanSearch,
   ShieldCheck,
   Sparkles,
   Star,
@@ -46,36 +45,6 @@ import {
   Zap,
 } from 'lucide-react';
 
-/* ==========================================================================
-   Content data
-   ========================================================================== */
-
-// NOTE: currently unused — nothing in the JSX below reads `featureData`. It is
-// left over from an earlier three-column feature grid. Safe to delete, or to
-// wire back up if that section returns.
-const featureData = [
-  {
-    number: '01',
-    icon: LockKeyhole,
-    title: 'Private by default',
-    description: 'Your words stay on your device. No training data, no hidden copies, no quiet trip to the cloud.',
-    tag: 'local-first',
-  },
-  {
-    number: '02',
-    icon: ScanSearch,
-    title: 'Logic, not just grammar',
-    description: 'DocuMend reads for missing bridges, circular arguments, and paragraphs that arrived too early.',
-    tag: 'deep reading',
-  },
-  {
-    number: '03',
-    icon: Wand2,
-    title: 'A lighter edit',
-    description: 'Cut repetition and filler without sanding off the voice that made the draft worth reading.',
-    tag: 'less noise',
-  },
-];
 
 // Rendered as the three quote cards in the "What writers say" section. The
 // avatar circle uses the first letter of `name`, so no image is needed.
@@ -110,7 +79,7 @@ const faqs = [
   },
   {
     question: 'What file formats does it support?',
-    answer: 'Import and edit docx, pdf, and .txt files. DocuMend handles the conversion and keeps everything encrypted locally. Export back to your preferred format anytime.',
+    answer: 'Import and edit .docx, .txt and .md files. DocuMend handles the conversion and keeps everything encrypted locally. Export back to your preferred format anytime.',
   },
   {
     question: 'Can I work offline?',
