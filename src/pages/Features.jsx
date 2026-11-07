@@ -52,7 +52,6 @@ import { workspaceRoutes } from '../components/workspace-nav';
 import { useTheme } from '../components/theme';
 import { navigate } from '../router';
 import { usePreference } from '../settings/preferences';
-import { CHECKS } from '../engine/checks';
 import './features.css';
 
 /* ==========================================================================
@@ -60,20 +59,78 @@ import './features.css';
    ========================================================================== */
 
 /**
- * The writing checks, taken from the engine itself. Their switches are
- * real: they write to the same `mutedChecks` preference the editor reads, so
- * a check turned off here stops appearing in the review panel.
+ * The writing checks, grouped into the families a reader actually cares
+ * about rather than one card per rule — `engine/checks.js` has 26 individual
+ * rules, and listing every one made this page read as the same few ideas
+ * (spelling, structure, references…) repeated many times over. Settings
+ * still lists every rule individually, where per-rule control belongs; this
+ * page is the overview.
+ *
+ * Each family's switch is real: toggling it mutes or unmutes every rule in
+ * `checkIds` at once, through the same `mutedChecks` preference the editor
+ * reads.
  */
-const checkCapabilities = CHECKS.map((check) => ({
-  id: `check-${check.id}`,
-  checkId: check.id,
-  title: check.title,
-  description: check.blurb,
+const CHECK_FAMILIES = [
+  {
+    id: 'contradictions',
+    title: 'Catches contradictions',
+    checkIds: ['numbers', 'claims', 'nli-contradiction'],
+    description: 'Two sentences that disagree — different figures for the same thing, a claim stated and then denied, or, with the on-device model switched on, the same disagreement said in different words.',
+    icon: FileCheck2,
+    tone: 'coral',
+  },
+  {
+    id: 'repetition',
+    title: 'Catches repeated sentences',
+    checkIds: ['repeat'],
+    description: 'A sentence that already said what an earlier one said.',
+    icon: Type,
+    tone: 'mint',
+  },
+  {
+    id: 'structure',
+    title: 'Checks the document’s structure',
+    checkIds: ['no-headings', 'missing-section', 'standard-name', 'empty-section', 'level-skip', 'duplicate-name', 'numbering'],
+    description: 'Missing or empty sections, skipped heading levels, duplicate headings, an unusual name for a standard section, and gaps in numbering — measured against the template for the document’s type.',
+    icon: Layers,
+    tone: 'gold',
+  },
+  {
+    id: 'references',
+    title: 'Checks references and citations',
+    checkIds: ['reference-year', 'citation-missing', 'reference-uncited', 'reference-style', 'reference-order', 'reference-list-name', 'isbn', 'doi'],
+    description: 'A citation with no matching reference, a reference nothing cites, a reference list in the wrong order or under the wrong name, and invalid ISBNs or DOIs — plus style rules once APA, MLA or IEEE is chosen.',
+    icon: BookOpen,
+    tone: 'blue',
+  },
+  {
+    id: 'punctuation',
+    title: 'Checks punctuation and spacing',
+    checkIds: ['extra-space', 'space-before-punctuation', 'missing-space-after-punctuation', 'repeated-punctuation', 'repeated-word'],
+    description: 'Doubled spaces, a space before a comma or full stop, punctuation running into the next word, a mark repeated past what is ever correct, and the same word typed twice in a row.',
+    icon: Type,
+    tone: 'mint',
+  },
+  {
+    id: 'spelling',
+    title: 'Checks spelling',
+    checkIds: ['spelling-inconsistent', 'misspelled-word'],
+    description: 'A word spelled two different ways in the same document, and words not in the checker’s ten-thousand-word list, with suggested corrections.',
+    icon: FileCheck2,
+    tone: 'coral',
+  },
+];
+
+const checkCapabilities = CHECK_FAMILIES.map((family) => ({
+  id: `family-${family.id}`,
+  checkIds: family.checkIds,
+  title: family.title,
+  description: family.description,
   group: 'Writing checks',
   status: 'now',
   where: 'Editor → Review panel',
-  icon: check.kind === 'structure' ? Layers : check.kind === 'redundancy' ? Type : FileCheck2,
-  tone: check.kind === 'structure' ? 'gold' : check.kind === 'redundancy' ? 'mint' : 'coral',
+  icon: family.icon,
+  tone: family.tone,
 }));
 
 /** Everything else, each line something you can go and do right now — or not. */
@@ -249,18 +306,29 @@ export default function Features() {
     window.setTimeout(() => setToast(''), 2700);
   };
 
-  /** Only the writing checks can be switched, and this is the real switch. */
-  const toggleCheck = (item) => {
-    const muted = mutedChecks.includes(item.checkId)
-      ? mutedChecks.filter((id) => id !== item.checkId)
-      : [...mutedChecks, item.checkId];
+  /**
+   * One family's switch controls every rule it covers at once. Turning it on
+   * means turning all of them on — a family partly on reads as off here, so
+   * the switch always has one obvious next state rather than a surprising one.
+   */
+  const toggleCheckFamily = (item) => {
+    const allOn = item.checkIds.every((id) => !mutedChecks.includes(id));
+    const muted = allOn
+      ? [...new Set([...mutedChecks, ...item.checkIds])]
+      : mutedChecks.filter((id) => !item.checkIds.includes(id));
     setMutedChecks(muted);
-    notify(muted.includes(item.checkId)
-      ? `The editor will stop flagging "${item.title}".`
-      : `"${item.title}" is back on.`);
+    notify(allOn
+      ? `The editor will stop flagging: ${item.title.toLowerCase()}.`
+      : `Back on: ${item.title.toLowerCase()}.`);
   };
 
-  const isOn = (item) => item.status === 'now' && !(item.checkId && mutedChecks.includes(item.checkId));
+  const onCountOf = (item) => item.checkIds.length - item.checkIds.filter((id) => mutedChecks.includes(id)).length;
+
+  const isOn = (item) => {
+    if (item.status !== 'now') return false;
+    if (!item.checkIds) return true;
+    return onCountOf(item) > 0;
+  };
 
   const workingNow = useMemo(() => CAPABILITIES.filter((item) => item.status === 'now').length, []);
 
@@ -406,21 +474,21 @@ export default function Features() {
                     <span className="feat-status-caption">
                       {planned ? (
                         <span className="feat-status-inactive">Not built yet</span>
-                      ) : item.checkId ? (
-                        on
-                          ? <span className="feat-status-active"><FileCheck2 size={13} /> On</span>
-                          : <span className="feat-status-inactive">You switched this off</span>
+                      ) : item.checkIds ? (
+                        <span className={on ? 'feat-status-active' : 'feat-status-inactive'}>
+                          <FileCheck2 size={13} /> {onCountOf(item)}/{item.checkIds.length} checks on
+                        </span>
                       ) : (
                         <span className="feat-status-active"><FileCheck2 size={13} /> Ready to use</span>
                       )}
                     </span>
 
-                    {/* Only the checks get a switch, because only the checks
+                    {/* Only the check families get a switch, because only they
                         have something behind one. */}
-                    {item.checkId && (
+                    {item.checkIds && (
                       <label className="feat-switch" onClick={(event) => event.stopPropagation()}>
                         <span className="dash-sr">{item.title}</span>
-                        <input type="checkbox" checked={on} onChange={() => toggleCheck(item)} />
+                        <input type="checkbox" checked={onCountOf(item) === item.checkIds.length} onChange={() => toggleCheckFamily(item)} />
                         <span className="feat-slider" />
                       </label>
                     )}
